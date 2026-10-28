@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Trainingsbuch</title>
+<meta name="description" content="Training tracken, Pläne erstellen, Strava-Sync">
+<meta name="theme-color" content="#F1F4F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1319" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Training">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brandrow">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect class="bg" width="64" height="64" rx="15"/><path class="pg" d="M8 19.5Q19 15 31 20.5V49Q19 43.5 8 48Z"/><path class="pg" d="M56 19.5Q45 15 33 20.5V49Q45 43.5 56 48Z"/><path class="ln" d="M12 35H20.5L24.5 27L30 42.5L35.5 26L39.5 35H47" fill="none" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><circle class="pt" cx="51" cy="35" r="3.4"/></svg>
+      <div class="brand">Trainingsbuch<small id="subtitle">Dein Training auf einen Blick</small></div>
+    </div>
+    <button class="sync" id="sync" type="button" aria-label="Jetzt synchronisieren"><i></i><span>Lade…</span></button>
+  </header>
+
+  <main id="app"><div class="empty">Lade…</div></main>
+</div>
+
+<nav class="tabs" aria-label="Bereiche" id="tabs" hidden>
+  <div class="in">
+    <button data-v="cal" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Kalender</button>
+    <button data-v="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11M9 12h11M9 19h11"/><path d="M4 5l1 1 2-2M4 12l1 1 2-2M4 19l1 1 2-2"/></svg>Plan</button>
+    <button data-v="stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M10 20V6M15 20v-9M20 20V4"/></svg>Statistik</button>
+    <button data-v="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.2-3.8 4-5.6 7.5-5.6s6.3 1.8 7.5 5.6"/></svg>Profil</button>
+  </div>
+</nav>
+
+<div id="sheetRoot"></div>
+<div class="toast" id="toast" hidden></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
