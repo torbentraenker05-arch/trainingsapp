@@ -1,7 +1,7 @@
 // Plan-Tab: Übersicht, Assistent, Regeln und Übergabe an Claude
 import { $, $$, esc, ymd, parse, addDays, mondayOf, isoWeek, todayStr, fmtKm, shortDate, WD, WD_SHORT, newId, clone, toast, addDaysStr, num, parseTime, fmtPace } from "./util.js";
 import { store } from "./store.js";
-import { sportsOf, sportOf, FOCUS, paceZones, hrZones, fmtRange, ZONE_LABEL, loadOf, DEFAULT_RULES } from "./sports.js";
+import { sportsOf, sportOf, FOCUS, learnedRest, paceZones, hrZones, fmtRange, ZONE_LABEL, loadOf, DEFAULT_RULES } from "./sports.js";
 import { generatePlan, PHASE_LABEL, RACES, CROSS_SPORTS, INTERVAL_TYPES, normCross } from "./planner.js";
 
 const st = { wizard: null }; // {step, cfg, preview}
@@ -142,7 +142,8 @@ function historyLoad() {
     const l = store.allWorkouts().filter(w => w.status === "done" && w.date >= a && w.date <= b).reduce((s, w) => s + loadOf(w, z), 0);
     if (l > 0) loads.push(l);
   }
-  return loads.length >= 3 ? { avgWeekLoad: loads.reduce((a, b) => a + b, 0) / loads.length } : {};
+  const lr = learnedRest(store.allWorkouts());
+  return { ...(loads.length >= 3 ? { avgWeekLoad: loads.reduce((a, b) => a + b, 0) / loads.length } : {}), restSec: lr?.sec || null };
 }
 function startWizard(plan) {
   const cfg = plan ? { ...defaultCfg(), ...clone(plan.config), name: plan.name, start: plan.start, end: plan.end, planId: plan.id } : defaultCfg();

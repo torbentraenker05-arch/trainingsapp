@@ -114,3 +114,12 @@ export function loadOf(w, z) {
   if (w.durationMin) return Math.round(w.durationMin * (w.hard ? 1.6 : 0.9));
   return 0;
 }
+
+// Gelernte Intervallpause: Mittelwert (Zeit bis Puls < Schwelle) der letzten 3 Läufe mit Messung,
+// auf 15 s gerundet, 45 s – 3:00 min. null, solange es keine Messungen gibt.
+export function learnedRest(workouts) {
+  const runs = workouts.filter(w => !w.deleted && w.status === "done" && w.recovery?.avgSec).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  if (!runs.length) return null;
+  const avg = runs.reduce((s, w) => s + w.recovery.avgSec, 0) / runs.length;
+  return { sec: Math.min(180, Math.max(45, Math.round(avg / 15) * 15)), n: runs.length, thr: runs[0].recovery.thr || 130 };
+}

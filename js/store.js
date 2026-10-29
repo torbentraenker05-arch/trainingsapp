@@ -10,7 +10,7 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSess
 const W_COLS = { id: "id", date: "date", slot: "slot", sport: "sport", focus: "focus", status: "status", title: "title", note: "note",
   distanceKm: "distance_km", durationMin: "duration_min", avgHr: "avg_hr", maxHr: "max_hr", elevM: "elev_m", trimp: "trimp", rpe: "rpe",
   intervals: "intervals", target: "target", isKey: "is_key", hard: "hard", locked: "locked", source: "source", planId: "plan_id",
-  stravaId: "strava_id", garminId: "garmin_id", deleted: "deleted", updatedAt: "updated_at" };
+  stravaId: "strava_id", garminId: "garmin_id", recovery: "recovery", deleted: "deleted", updatedAt: "updated_at" };
 const P_COLS = { id: "id", name: "name", start: "start_date", end: "end_date", config: "config", active: "active", deleted: "deleted", createdAt: "created_at", updatedAt: "updated_at" };
 const NUMERIC = new Set(["distanceKm", "durationMin", "elevM", "trimp"]);
 

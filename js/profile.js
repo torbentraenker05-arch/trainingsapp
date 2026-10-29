@@ -1,7 +1,7 @@
 // Profil: Konto, Zonen, Sportarten, Strava, CSV-Import, Backup
 import { $, $$, esc, todayStr, toast, newId, num, parseTime } from "./util.js";
 import { sb, store, callStrava, callGarmin } from "./store.js";
-import { BASE_SPORTS, sportsOf, DEFAULT_STRAVA_MAP, trimp } from "./sports.js";
+import { BASE_SPORTS, sportsOf, DEFAULT_STRAVA_MAP, trimp, learnedRest } from "./sports.js";
 import { zonesTable } from "./plan-ui.js";
 import { SUPABASE_URL } from "./config.js";
 
@@ -27,6 +27,7 @@ export function renderProfile(passive = false) {
       <div class="row2"><div class="field"><label for="p-max">Maximalpuls</label><input type="number" id="p-max" value="${esc(z.hrMax)}"></div>
       <div class="field"><label for="p-rest">Ruhepuls</label><input type="number" id="p-rest" value="${esc(z.hrRest)}"></div></div>
       <div id="pZones">${zonesTable(z)}</div>
+      <p class="hint" style="margin:0">${(lr => lr ? `Intervallpause (gelernt): <b>${Math.floor(lr.sec / 60)}:${String(lr.sec % 60).padStart(2, "0")} min</b> – Zeit bis Puls unter ${lr.thr}, aus ${lr.n} Intervall-Läufen.` : "Intervallpause: noch keine Messung. Sobald Garmin-Intervall-Läufe mit Pausen-Runden da sind, lernt der Plan deine Pausenzeit.")(learnedRest(store.allWorkouts()))}</p>
       <p class="hint" style="margin:0">Änderungen gelten für neu berechnete Pläne und neue Importe.</p></div>
 
     <div class="panel stack"><div class="panel-h" style="margin:0"><h3>Sportarten</h3></div>

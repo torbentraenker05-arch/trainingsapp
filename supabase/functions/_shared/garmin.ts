@@ -1,6 +1,9 @@
 // Garmin Connect Personal API: Token aus dem persönlichen Schlüssel, Aktivitäten lesen und importieren.
 import { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 import { trimp } from "./strava.ts";
+import { Decoder, Stream } from "npm:@garmin/fitsdk@21.217.0";
+import { unzipSync } from "npm:fflate@0.8.2";
+import { analyzeRecovery } from "./fit.js";
 
 export const GARMIN_BASE = "https://personal.connectapi.garmin.com";
 const TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token";
@@ -67,13 +70,45 @@ async function garminGet(db: SupabaseClient, userId: string, path: string, query
   throw new Error("Garmin antwortet gerade nicht – später nochmal versuchen");
 }
 
+async function garminBytes(db: SupabaseClient, userId: string, path: string): Promise<Uint8Array> {
+  let token = await getToken(db, userId);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await fetch(GARMIN_BASE + path, { headers: { Accept: "application/zip, application/octet-stream", Authorization: "Bearer " + token } });
+    if (r.ok) return new Uint8Array(await r.arrayBuffer());
+    if (r.status === 401 && attempt === 0) { token = await getToken(db, userId, true); continue; }
+    throw new GarminError(r.status, "FIT-Download fehlgeschlagen (" + r.status + ")");
+  }
+  throw new Error("FIT-Download fehlgeschlagen");
+}
+
+// Läufe der letzten 60 Tage: FIT laden und Erholung in den Pausen-Runden messen (max. 8 pro Abgleich)
+async function analyzeRecent(db: SupabaseClient, userId: string, thr: number) {
+  const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+  const { data: list } = await db.from("workouts").select("id,garmin_id")
+    .eq("user_id", userId).eq("sport", "run").eq("fit_checked", false).eq("deleted", false)
+    .not("garmin_id", "is", null).gte("date", since).order("date", { ascending: false }).limit(8);
+  let n = 0;
+  for (const w of list || []) {
+    try {
+      const bytes = await garminBytes(db, userId, "/download-service/files/activity/" + w.garmin_id);
+      const rec = analyzeRecovery(bytes, { Decoder, Stream, unzipSync }, thr);
+      await db.from("workouts").update({ fit_checked: true, recovery: rec.values.length ? rec : null }).eq("id", w.id);
+      if (rec.values.length) n++;
+    } catch (e) {
+      console.warn("fit", w.garmin_id, (e as Error).message);
+      if ((e as any).status === 404) await db.from("workouts").update({ fit_checked: true }).eq("id", w.id);
+    }
+  }
+  return n;
+}
+
 function newId() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
 
-type Cfg = { map: Record<string, string>; hrRest: number; hrMax: number };
+type Cfg = { map: Record<string, string>; hrRest: number; hrMax: number; recoveryHr: number };
 async function settingsOf(db: SupabaseClient, userId: string): Promise<Cfg> {
   const { data } = await db.from("settings").select("data").eq("user_id", userId).maybeSingle();
   const s = (data?.data ?? {}) as Record<string, any>;
-  return { map: s.garminMap ?? {}, hrRest: Number(s.zones?.hrRest) || 60, hrMax: Number(s.zones?.hrMax) || 190 };
+  return { map: s.garminMap ?? {}, hrRest: Number(s.zones?.hrRest) || 60, hrMax: Number(s.zones?.hrMax) || 190, recoveryHr: Number(s.zones?.recoveryHr) || 130 };
 }
 
 // Importiert eine Garmin-Aktivität: aktualisiert eine bereits importierte, übernimmt einen passenden
@@ -125,13 +160,14 @@ export async function syncGarmin(db: SupabaseClient, userId: string, days = 120)
   const from = k.last_sync ? new Date(new Date(k.last_sync).getTime() - 3 * 864e5) : new Date(Date.now() - days * 864e5);
   const to = new Date(Date.now() + 864e5);
   const cfg = await settingsOf(db, userId);
-  const stats: Record<string, number> = { created: 0, matched: 0, linked: 0, updated: 0, skipped: 0 };
+  const stats: Record<string, number> = { created: 0, matched: 0, linked: 0, updated: 0, skipped: 0, analyzed: 0 };
   try {
     for (let page = 0; page < 20; page++) {
       const list = (await garminGet(db, userId, "/activitylist-service/activities/search/activities", { start: page * 100, limit: 100, startDate: ymd(from), endDate: ymd(to) })) ?? [];
       for (const a of list) stats[await importGarmin(db, userId, a, cfg)]++;
       if (list.length < 100) break;
     }
+    stats.analyzed = await analyzeRecent(db, userId, cfg.recoveryHr);
     await db.from("garmin_keys").update({ last_sync: new Date().toISOString(), last_error: null }).eq("user_id", userId);
   } catch (e) {
     await db.from("garmin_keys").update({ last_error: (e as Error).message }).eq("user_id", userId);

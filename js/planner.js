@@ -109,7 +109,7 @@ function mk(sets, wuKm, cdKm, z) {
 }
 function setText(s) {
   const what = s.m ? (s.m >= 1000 ? fmtKm(s.m / 1000) + " km" : s.m + " m") : (s.sec >= 60 && s.sec % 60 === 0 ? s.sec / 60 + " min" : s.sec + " s");
-  const rest = s.rest ? ", " + (s.rest >= 60 ? fmtTime(s.rest) + " min" : s.rest + " s") + (s.uphill ? " locker zurück traben" : " Trabpause") : "";
+  const rest = s.rest ? ", " + (s.rest >= 60 ? fmtTime(s.rest) + " min" : s.rest + " s") + (s.uphill ? " locker zurück traben" : s.walk ? " Pause (gehen oder traben)" : " Trabpause") : "";
   const how = s.uphill ? " zügig bergauf" : " @ " + fmtPace(s.pace) + "/km";
   return (s.reps > 1 ? s.reps + "×" : "") + what + how + rest;
 }
@@ -122,20 +122,22 @@ const PHASE_TYPES = {
 };
 const FAST = new Set(["i400", "i600", "i800", "i1000", "pyramid", "hills"]);
 
-function intervalSession(type, P, deload) {
+// learned: gelernte Pause in Sekunden (aus der Pulserholung deiner letzten Intervall-Läufe) oder null
+function intervalSession(type, P, deload, learned) {
   const { z } = P, iv = z.interval[0], th = z.threshold[0], tenK = z.pace(10);
   const red = n => deload ? Math.max(2, Math.round(n * 0.65)) : n;
+  const R = std => learned ? { rest: learned, walk: true } : { rest: std };
   let label = "Intervalle", sets, wu = 2, cd = 1.5, zone = "interval";
   switch (type) {
-    case "i400": sets = [{ reps: red(10), m: 400, pace: iv * 0.97, rest: 75 }]; break;
-    case "i600": sets = [{ reps: red(8), m: 600, pace: iv * 0.98, rest: 90 }]; break;
-    case "i800": sets = [{ reps: red(6), m: 800, pace: iv, rest: 120 }]; break;
-    case "i1000": sets = [{ reps: red(5), m: 1000, pace: iv, rest: 120 }]; break;
-    case "i1600": sets = [{ reps: red(4), m: 1600, pace: (iv + tenK) / 2, rest: 150 }]; break;
-    case "i2000": sets = [{ reps: red(3), m: 2000, pace: tenK, rest: 180 }]; break;
+    case "i400": sets = [{ reps: red(10), m: 400, pace: iv * 0.97, ...R(75) }]; break;
+    case "i600": sets = [{ reps: red(8), m: 600, pace: iv * 0.98, ...R(90) }]; break;
+    case "i800": sets = [{ reps: red(6), m: 800, pace: iv, ...R(120) }]; break;
+    case "i1000": sets = [{ reps: red(5), m: 1000, pace: iv, ...R(120) }]; break;
+    case "i1600": sets = [{ reps: red(4), m: 1600, pace: (iv + tenK) / 2, ...R(150) }]; break;
+    case "i2000": sets = [{ reps: red(3), m: 2000, pace: tenK, ...R(180) }]; break;
     case "pyramid":
       label = "Pyramide";
-      sets = (deload ? [400, 800, 400] : [400, 800, 1200, 800, 400]).map(m => ({ reps: 1, m, pace: iv, rest: m >= 800 ? 120 : 90 }));
+      sets = (deload ? [400, 800, 400] : [400, 800, 1200, 800, 400]).map(m => ({ reps: 1, m, pace: iv, ...R(m >= 800 ? 120 : 90) }));
       break;
     case "hills":
       label = "Bergintervalle"; zone = "rep"; wu = 3; cd = 2;
@@ -148,7 +150,8 @@ function intervalSession(type, P, deload) {
 }
 function runQuality(label, sets, wu, cd, zone, z, type, key = true) {
   const est = mk(sets, wu, cd, z);
-  const main = sets.every(s => s.reps === 1) && sets.length > 1 ? sets.map(s => s.m + " m").join("–") + " @ " + fmtPace(sets[0].pace) + "/km, 1:30–2:00 min Trabpause" : sets.map(setText).join(" · ");
+  const pyrRest = sets[0].walk ? fmtTime(sets[0].rest) + " min Pause (gehen oder traben)" : "1:30–2:00 min Trabpause";
+  const main = sets.every(s => s.reps === 1) && sets.length > 1 ? sets.map(s => s.m + " m").join("–") + " @ " + fmtPace(sets[0].pace) + "/km, " + pyrRest : sets.map(setText).join(" · ");
   return {
     sport: "run", isKey: key, hard: key, title: null, distanceKm: est.km, durationMin: est.min,
     intervals: { warmupKm: wu, cooldownKm: cd, sets },
@@ -383,7 +386,7 @@ export function generatePlan(cfg, settings, existing, history = {}) {
         if (!cand.length) cand = pool;
         const t = cand[(typeIdx++) % cand.length];
         thisTypes.push(t);
-        s = intervalSession(t, P, wk.deload);
+        s = intervalSession(t, P, wk.deload, history.restSec || null);
       }
       runItems.push(s); kmLeft -= s.distanceKm; nRuns--;
     }
