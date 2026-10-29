@@ -1,7 +1,7 @@
 // Vorschläge, die du bestätigen oder ablehnen kannst: verpasste Einheiten, Wochenanpassung, neue Zonen
 import { esc, ymd, parse, addDays, mondayOf, todayStr, shortDate, WD, fmtTime, parseTime, toast, addDaysStr } from "./util.js";
 import { store } from "./store.js";
-import { sportOf } from "./sports.js";
+import { sportOf, paceZones } from "./sports.js";
 import { rescheduleOptions, weekBalance } from "./planner.js";
 
 const dismissed = k => store.settings.dismissed.includes(k);
@@ -42,12 +42,15 @@ export function proposals() {
       actions: [["Anpassen", () => { store.putWorkouts(runs.map(w => scaleRun(w, 0.85))); dismiss(kAdj); toast(runs.length + " Läufe angepasst"); }], ["Nein, so lassen", () => dismiss(kAdj)]] });
   }
 
-  // 3. Pace-Zonen: tatsächliche Intervall-Pace (aus den FIT-Dateien) gegen die geplante, letzte 3 Intervall-Läufe
-  const ivRuns = all.filter(w => w.status === "done" && w.sport === "run" && w.date >= addDaysStr(t, -60) && w.recovery?.reps?.length && planPace(w))
+  // 3. Pace-Zonen: tatsächliche Intervall-Pace (aus den FIT-Dateien) gegen die geplante – oder, ohne Plan,
+  //    gegen die Pace, die die aktuellen Zonen für diese Intervall-Länge vorgeben würden. Letzte 3 Intervall-Läufe.
+  const pz = paceZones(z);
+  const target = w => planPace(w) || zonePace(w.recovery.reps, pz);
+  const ivRuns = all.filter(w => w.status === "done" && w.sport === "run" && w.date >= addDaysStr(t, -60) && w.recovery?.reps?.length >= 3 && target(w))
     .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
   const refSec = parseTime(z.refTime);
   if (ivRuns.length === 3 && refSec) {
-    const ratios = ivRuns.map(w => { const reps = w.recovery.reps, m = reps.reduce((s, r) => s + r.m, 0); return (reps.reduce((s, r) => s + r.sec, 0) / m * 1000) / planPace(w); });
+    const ratios = ivRuns.map(w => { const reps = w.recovery.reps, m = reps.reduce((s, r) => s + r.m, 0); return (reps.reduce((s, r) => s + r.sec, 0) / m * 1000) / target(w); });
     const faster = ratios.every(r => r < 0.98), slower = ratios.every(r => r > 1.04);
     if (faster || slower) {
       const r = ratios.reduce((a, b) => a + b, 0) / ratios.length;
@@ -71,6 +74,12 @@ function planPace(w) {
   const sets = (w.intervals?.sets || []).filter(x => x.m && x.pace && !x.uphill);
   const m = sets.reduce((s, x) => s + x.m * x.reps, 0);
   return m ? sets.reduce((s, x) => s + x.m * x.reps * x.pace, 0) / m : null;
+}
+// Pace (s/km), die der Plan bei den aktuellen Zonen für Intervalle dieser Länge vorgeben würde
+function zonePace(reps, pz) {
+  if (!pz) return null;
+  const m = reps.reduce((s, r) => s + r.m, 0) / reps.length, iv = pz.interval[0], tenK = pz.pace(10);
+  return m <= 500 ? iv * 0.97 : m <= 700 ? iv * 0.98 : m <= 1200 ? iv : m <= 1800 ? (iv + tenK) / 2 : tenK;
 }
 // Höchster Puls, den mindestens ein zweiter Wert bis auf 5 bpm bestätigt
 export function robustMaxHr(values) {
