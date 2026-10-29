@@ -59,7 +59,7 @@ function renderOverview() {
     ${rulesHTML()}
   </section>`;
   $("#editPlan").onclick = () => startWizard(p);
-  $("#recalc").onclick = () => { startWizard(p); st.wizard.step = 5; renderWizard(); };
+  $("#recalc").onclick = () => { startWizard(p); st.wizard.step = STEPS.length - 1; renderWizard(); };
   $("#claude").onclick = () => openBridge(p);
   $("#endPlan").onclick = () => $("#endConfirm").hidden = false;
   $("#endNo").onclick = () => $("#endConfirm").hidden = true;

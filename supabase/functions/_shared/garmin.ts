@@ -72,11 +72,14 @@ async function garminGet(db: SupabaseClient, userId: string, path: string, query
 
 async function garminBytes(db: SupabaseClient, userId: string, path: string): Promise<Uint8Array> {
   let token = await getToken(db, userId);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await fetch(GARMIN_BASE + path, { headers: { Accept: "application/zip, application/octet-stream", Authorization: "Bearer " + token } });
+  // Garmin antwortet je nach Accept-Header mit 406 – nacheinander probieren
+  const accepts = ["*/*", "application/octet-stream", "application/zip"];
+  for (let attempt = 0, ai = 0; attempt < 5 && ai < accepts.length; attempt++) {
+    const r = await fetch(GARMIN_BASE + path, { headers: { Accept: accepts[ai], Authorization: "Bearer " + token } });
     if (r.ok) return new Uint8Array(await r.arrayBuffer());
-    if (r.status === 401 && attempt === 0) { token = await getToken(db, userId, true); continue; }
-    throw new GarminError(r.status, "FIT-Download fehlgeschlagen (" + r.status + ")");
+    if (r.status === 401) { token = await getToken(db, userId, true); continue; }
+    if (r.status === 406) { ai++; continue; }
+    throw new GarminError(r.status, "FIT-Download fehlgeschlagen (" + r.status + "): " + (await r.text()).slice(0, 200));
   }
   throw new Error("FIT-Download fehlgeschlagen");
 }
