@@ -10,7 +10,7 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSess
 const W_COLS = { id: "id", date: "date", slot: "slot", sport: "sport", focus: "focus", status: "status", title: "title", note: "note",
   distanceKm: "distance_km", durationMin: "duration_min", avgHr: "avg_hr", maxHr: "max_hr", elevM: "elev_m", trimp: "trimp", rpe: "rpe",
   intervals: "intervals", target: "target", isKey: "is_key", hard: "hard", locked: "locked", source: "source", planId: "plan_id",
-  stravaId: "strava_id", deleted: "deleted", updatedAt: "updated_at" };
+  stravaId: "strava_id", garminId: "garmin_id", deleted: "deleted", updatedAt: "updated_at" };
 const P_COLS = { id: "id", name: "name", start: "start_date", end: "end_date", config: "config", active: "active", deleted: "deleted", createdAt: "created_at", updatedAt: "updated_at" };
 const NUMERIC = new Set(["distanceKm", "durationMin", "elevM", "trimp"]);
 
@@ -23,6 +23,7 @@ function fromDb(row, cols) {
   const o = {};
   for (const [k, c] of Object.entries(cols)) if (row[c] !== undefined) o[k] = NUMERIC.has(k) && row[c] != null ? Number(row[c]) : row[c];
   if (o.stravaId != null) o.stravaId = Number(o.stravaId);
+  if (o.garminId != null) o.garminId = Number(o.garminId);
   return o;
 }
 
@@ -33,6 +34,7 @@ export const store = {
   settings: clone(DEFAULT_SETTINGS),
   strava: null,       // {athlete_name,last_sync} oder null
   stravaApp: null,    // {client_id,subscription_id} oder null
+  garmin: null,       // {last_sync,last_error} oder null
   outbox: {},         // "w:<id>" | "p:<id>" | "s" → Datensatz
   lastPull: null,
   online: navigator.onLine,
@@ -53,9 +55,10 @@ export const store = {
     this.lastPull = c?.lastPull || null;
     this.strava = c?.strava || null;
     this.stravaApp = c?.stravaApp || null;
+    this.garmin = c?.garmin || null;
   },
   persist() {
-    lsSet(this.key(), { workouts: [...this.workouts.values()], plans: [...this.plans.values()], settings: this.settings, outbox: this.outbox, lastPull: this.lastPull, strava: this.strava, stravaApp: this.stravaApp });
+    lsSet(this.key(), { workouts: [...this.workouts.values()], plans: [...this.plans.values()], settings: this.settings, outbox: this.outbox, lastPull: this.lastPull, strava: this.strava, stravaApp: this.stravaApp, garmin: this.garmin });
   },
   pending() { return Object.keys(this.outbox).length; },
 
@@ -152,6 +155,8 @@ export const store = {
     this.strava = st || null;
     const { data: sa } = await sb.from("strava_apps").select("client_id,subscription_id").eq("user_id", this.uid).maybeSingle();
     this.stravaApp = sa || null;
+    const { data: gk } = await sb.from("garmin_keys").select("last_sync,last_error,created_at").eq("user_id", this.uid).maybeSingle();
+    this.garmin = gk || null;
     this.lastPull = maxTs;
   },
   async fullResync() { this.lastPull = null; await this.sync(); },
@@ -163,10 +168,22 @@ function mergeSettings(s) {
   return { ...d, ...s, zones: { ...d.zones, ...(s.zones || {}) }, rules: { ...DEFAULT_RULES, ...(s.rules || {}) }, sports: { ...(s.sports || {}) }, stravaMap: { ...(s.stravaMap || {}) }, dismissed: s.dismissed || [] };
 }
 
-export async function callStrava(action, extra = {}) {
+export const callStrava = (action, extra) => callFn("strava", action, extra);
+export const callGarmin = (action, extra) => callFn("garmin", action, extra);
+
+// Garmin automatisch abgleichen, wenn der letzte Abgleich länger als 30 min her ist
+export async function autoGarmin() {
+  const g = store.garmin;
+  if (!g || !navigator.onLine || store._garminBusy) return;
+  if (g.last_sync && Date.now() - new Date(g.last_sync).getTime() < 30 * 60e3) return;
+  store._garminBusy = true;
+  try { await callGarmin("sync"); await store.sync(); } catch (e) { console.warn("garmin", e); } finally { store._garminBusy = false; }
+}
+
+async function callFn(fn, action, extra = {}) {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) throw new Error("Nicht angemeldet");
-  const r = await fetch(SUPABASE_URL + "/functions/v1/strava", {
+  const r = await fetch(SUPABASE_URL + "/functions/v1/" + fn, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + session.access_token, apikey: SUPABASE_KEY },
     body: JSON.stringify({ action, ...extra }),
@@ -178,5 +195,5 @@ export async function callStrava(action, extra = {}) {
 
 window.addEventListener("online", () => store.sync());
 window.addEventListener("offline", () => { store.online = false; store.emit(); });
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") store.sync(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") store.sync().then(autoGarmin); });
 setInterval(() => { if (document.visibilityState === "visible") store.sync(); }, 60000);

@@ -13,7 +13,8 @@ Trainings-App als PWA für iPhone und PC, ohne App Store.
 |---|---|
 | Frontend (statisch, Vanilla JS) | `index.html`, `css/`, `js/` – gehostet auf GitHub Pages |
 | Datenbank, Login | Supabase (Projekt `todpltoqjiozzdelower`), Schema in `supabase/migrations/` |
-| Strava-Anbindung | Edge Functions in `supabase/functions/` (`strava`, `strava-callback`, `strava-webhook`) |
+| Garmin-Anbindung | Edge Function `garmin` (Garmin Connect Personal API, Abgleich beim Öffnen der App) |
+| Strava-Anbindung (optional, braucht Strava-Abo) | Edge Functions `strava`, `strava-callback`, `strava-webhook` |
 | Plan-Algorithmus | `js/planner.js` |
 
 Offline: Änderungen landen zuerst lokal und werden synchronisiert, sobald wieder Netz da ist (`js/store.js`).

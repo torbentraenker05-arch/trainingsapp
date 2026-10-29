@@ -1,6 +1,6 @@
 // App-Start, Navigation, Login, Kalender und Eintrags-Formular
 import { $, $$, esc, ymd, parse, addDays, mondayOf, isoWeek, longDate, todayStr, fmtKm, fmtDur, fmtPace, num, MONTHS, toast, addDaysStr } from "./util.js";
-import { sb, store } from "./store.js";
+import { sb, store, autoGarmin } from "./store.js";
 import { sportsOf, sportOf, FOCUS, trimp } from "./sports.js";
 import { renderPlan } from "./plan-ui.js";
 import { renderStats } from "./stats.js";
@@ -86,6 +86,7 @@ async function start(session) {
   render();
   await store.sync();
   handleHash();
+  autoGarmin();
 }
 
 function handleHash() {
@@ -180,6 +181,7 @@ export function entryHTML(w, showDate) {
     plan ? `<span class="chip ${late ? "late" : "plan"}">${late ? "Offen" : "Geplant"}</span>` : "",
     plan && w.isKey ? `<span class="chip key">Schlüssel</span>` : "",
     w.source === "strava" ? `<span class="chip">Strava</span>` : "",
+    w.source === "garmin" ? `<span class="chip">Garmin</span>` : "",
     w.seriesId ? `<span class="chip">Serie</span>` : "",
   ].join("");
   return `<div class="entry${plan ? " plan" : ""}" style="--c:${s.c}"><button class="entry-main" data-edit="${esc(w.id)}"><span class="sw"></span><span class="t">${name}${sub}${chips}</span><span class="date">${showDate ? dt.getDate() + "." + (dt.getMonth() + 1) + "." : w.target?.part ? `<span class="slotlbl">${esc(w.target.part)}</span>` : ""}</span>${bits.length ? `<span class="m">${bits.join(" · ")}</span>` : ""}${w.note ? `<span class="n">${esc(w.note)}</span>` : ""}</button>${check}</div>`;
@@ -228,7 +230,7 @@ export function openSheet(w) {
       <div class="field"><label for="f-rep">Wiederholen</label><select class="in" id="f-rep"><option value="0">Nicht wiederholen</option><option value="1">Jeden Tag</option><option value="7">Jede Woche</option><option value="14">Alle 2 Wochen</option></select></div>
       <div class="field" id="repUntilField" hidden><label for="f-until">Bis einschließlich</label><input type="date" id="f-until" value="${ymd(addDays(parse(w.date), 27))}"></div>
     </div>` : ""}
-    ${w.source === "strava" ? `<p class="hint">Aus Strava importiert. Änderungen in Strava überschreiben diese Werte.</p>` : ""}
+    ${w.source === "strava" || w.source === "garmin" ? `<p class="hint">Aus ${w.source === "garmin" ? "Garmin" : "Strava"} importiert. Änderungen dort überschreiben diese Werte beim nächsten Abgleich.</p>` : ""}
     ${w.planId && !isNew ? `<p class="hint">Teil deines Plans. Wenn du hier etwas änderst, bleibt die Einheit beim Neuberechnen des Plans erhalten.</p>` : ""}
     <div class="actions" id="f-actions">
       ${isNew ? "<span></span>" : `<button type="button" class="btn danger" id="delBtn">Löschen</button>`}

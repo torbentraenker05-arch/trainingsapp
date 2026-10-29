@@ -1,6 +1,6 @@
 // Profil: Konto, Zonen, Sportarten, Strava, CSV-Import, Backup
 import { $, $$, esc, todayStr, toast, newId, num, parseTime } from "./util.js";
-import { sb, store, callStrava } from "./store.js";
+import { sb, store, callStrava, callGarmin } from "./store.js";
 import { BASE_SPORTS, sportsOf, DEFAULT_STRAVA_MAP, trimp } from "./sports.js";
 import { zonesTable } from "./plan-ui.js";
 import { SUPABASE_URL } from "./config.js";
@@ -9,7 +9,7 @@ const CB_DOMAIN = new URL(SUPABASE_URL).host;
 let webhookTried = false;
 
 export function renderProfile(passive = false) {
-  if (passive && $("#v-profile")) { renderStrava(); return; }
+  if (passive && $("#v-profile")) { renderGarmin(); renderStrava(); return; }
   const z = store.settings.zones;
   $("#app").innerHTML = `<section class="view" id="v-profile">
     <h2>Profil</h2>
@@ -17,7 +17,9 @@ export function renderProfile(passive = false) {
       <div class="hint">${esc(store.email || "")}</div>
       <div class="row"><button class="btn secondary small" id="resync">Alle Daten neu laden</button><span class="hint">${store.pending() ? store.pending() + " Änderungen warten auf Verbindung" : "Alles synchronisiert"}</span></div></div>
 
-    <div class="panel" id="stravaBox"></div>
+    <div class="panel" id="garminBox"></div>
+
+    <details class="panel" id="stravaWrap"${store.strava ? " open" : ""}><summary class="hint" style="cursor:pointer">Strava (Alternative – braucht ein kostenpflichtiges Strava-Abo)</summary><div id="stravaBox" style="margin-top:10px"></div></details>
 
     <div class="panel stack"><div class="panel-h" style="margin:0"><h3>Zonen</h3></div>
       <div class="row2"><div class="field"><label for="p-dist">Referenz-Distanz</label><select class="in" id="p-dist">${[3, 5, 10, 21.1, 42.2].map(d => `<option value="${d}"${Number(z.refDistanceKm) === d ? " selected" : ""}>${d === 21.1 ? "Halbmarathon" : d === 42.2 ? "Marathon" : d + " km"}</option>`).join("")}</select></div>
@@ -25,14 +27,14 @@ export function renderProfile(passive = false) {
       <div class="row2"><div class="field"><label for="p-max">Maximalpuls</label><input type="number" id="p-max" value="${esc(z.hrMax)}"></div>
       <div class="field"><label for="p-rest">Ruhepuls</label><input type="number" id="p-rest" value="${esc(z.hrRest)}"></div></div>
       <div id="pZones">${zonesTable(z)}</div>
-      <p class="hint" style="margin:0">Änderungen gelten für neu berechnete Pläne und neue Strava-Importe.</p></div>
+      <p class="hint" style="margin:0">Änderungen gelten für neu berechnete Pläne und neue Importe.</p></div>
 
     <div class="panel stack"><div class="panel-h" style="margin:0"><h3>Sportarten</h3></div>
       <div id="sportList"></div>
       <form class="row" id="addSport" novalidate><input type="color" id="ns-c" value="#3B82F6" aria-label="Farbe" style="width:40px;height:40px;border:0;background:none;padding:0"><input type="text" id="ns-l" class="grow" placeholder="Neue Sportart, z. B. Klettern" style="width:auto"><label class="row hint"><input type="checkbox" id="ns-km"> mit Distanz</label><button class="btn small" type="submit">Hinzufügen</button></form></div>
 
     <div class="panel stack"><div class="panel-h" style="margin:0"><h3>CSV-Import</h3></div>
-      <p class="hint" style="margin:0">Für Daten ohne Strava: Strava-Export (activities.csv), Garmin-Connect-Export oder eigene Tabelle mit Spalten wie Datum, Typ, Distanz, Zeit, Puls. Passende geplante Einheiten werden automatisch abgehakt, doppelte übersprungen.</p>
+      <p class="hint" style="margin:0">Für Daten ohne Garmin-Verbindung: Strava-Export (activities.csv), Garmin-Connect-Export oder eigene Tabelle mit Spalten wie Datum, Typ, Distanz, Zeit, Puls. Passende geplante Einheiten werden automatisch abgehakt, doppelte übersprungen.</p>
       <div class="import-row"><label class="btn" for="csvFile">CSV-Datei auswählen</label><input type="file" class="vh" id="csvFile" accept=".csv,text/csv,text/plain"></div>
       <p id="csvStatus" style="margin:0"></p></div>
 
@@ -64,7 +66,43 @@ export function renderProfile(passive = false) {
   $("#csvFile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) importCSV(f); };
   $("#exportBtn").onclick = exportBackup;
   $("#backupFile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) importBackup(f); };
+  renderGarmin();
   renderStrava();
+}
+
+// ---------- Garmin (Personal API) ----------
+function renderGarmin() {
+  const box = $("#garminBox"); if (!box) return;
+  const g = store.garmin;
+  let h = `<div class="panel-h"><h3>Garmin Connect</h3>${g ? '<span class="chip done">verbunden</span>' : ""}</div>`;
+  if (!g) {
+    h += `<p class="hint">Holt deine Aktivitäten direkt von Garmin – kostenlos, mit Puls. Einmalig einrichten:</p>
+      <ol class="hint steps">
+        <li>In Safari oder am PC <a href="https://connect.garmin.com/app/settings/personalApiToken" target="_blank" rel="noopener">Garmin Connect → Einstellungen → Persönlicher API-Schlüssel</a> öffnen und anmelden.</li>
+        <li>Neuen Schlüssel erstellen. Bei der Gültigkeit am besten <b>1 Jahr</b> wählen.</li>
+        <li>Schlüssel kopieren, hier einfügen und <b>Verbinden</b> tippen.</li>
+      </ol>
+      <form class="stack" id="gForm" novalidate>
+        <div class="field"><label for="g-key">Persönlicher API-Schlüssel</label><input type="password" id="g-key" autocomplete="off"></div>
+        <div class="row"><button class="btn" type="submit">Verbinden</button><span class="hint" id="g-msg"></span></div>
+      </form>
+      <p class="hint" style="margin:0">Der Schlüssel wird nur auf dem Server gespeichert und nie wieder an die App geschickt. Bereits per CSV importierte Einheiten werden erkannt und nicht doppelt angelegt.</p>`;
+  } else {
+    const last = g.last_sync ? new Date(g.last_sync).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "noch nie";
+    h += `<p class="hint">Letzter Abgleich: ${esc(last)}. Die App gleicht automatisch ab, sobald du sie öffnest (höchstens alle 30 Minuten).</p>
+      ${g.last_error ? `<div class="warn">${esc(g.last_error)}</div>` : ""}
+      <div class="row"><button class="btn" id="g-sync">Jetzt abgleichen</button><button class="btn secondary small" id="g-new">Neuen Schlüssel eintragen</button><button class="btn danger small" id="g-off">Trennen</button></div>
+      <p class="hint" id="g-msg"></p>`;
+  }
+  box.innerHTML = h;
+  const msg = t => { const m = $("#g-msg"); if (m) m.textContent = t; };
+  const result = r => `${r.created} neu, ${r.matched} geplante abgehakt, ${r.linked} vorhandene verknüpft, ${r.updated} aktualisiert`;
+  const run = async (fn, busy) => { msg(busy); try { await fn(); } catch (e) { msg("Fehler: " + e.message); } };
+  const f = $("#gForm");
+  if (f) f.onsubmit = e => { e.preventDefault(); run(async () => { const r = await callGarmin("save_key", { api_key: $("#g-key").value }); await store.sync(); toast("Garmin verbunden"); msg(result(r)); }, "Verbinde und lade die letzten 4 Monate…"); };
+  const sy = $("#g-sync"); if (sy) sy.onclick = () => run(async () => { const r = await callGarmin("sync"); await store.sync(); msg(result(r)); }, "Gleiche ab…");
+  const nw = $("#g-new"); if (nw) nw.onclick = () => { store.garmin = null; renderGarmin(); };
+  const off = $("#g-off"); if (off) off.onclick = () => run(async () => { await callGarmin("disconnect"); await store.sync(); toast("Garmin getrennt"); }, "Trenne…");
 }
 
 function renderSports() {
@@ -77,7 +115,7 @@ function renderSports() {
 function renderStrava() {
   const box = $("#stravaBox"); if (!box) return;
   const app = store.stravaApp, con = store.strava;
-  let h = `<div class="panel-h"><h3>Strava</h3>${con ? '<span class="chip done">verbunden</span>' : ""}</div>`;
+  let h = con ? `<div class="panel-h"><span class="chip done">verbunden</span></div>` : "";
   if (!app) {
     h += `<p class="hint">Einmalig: Lege bei Strava eine eigene API-Anwendung an. Das dauert ca. 2 Minuten und kostet nichts.</p>
       <ol class="hint steps">
