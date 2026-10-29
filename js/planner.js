@@ -250,7 +250,10 @@ export class WeekBoard {
     const counted = its.filter(x => x.sport !== "stretch").length;
     if (k === "HE" || k === "HS") {
       if (R.hardDaysHard) s += hard ? 6 : 0;
-      if (k === "HS" && its.some(x => kindOf(x) === "HE" && x.sport === "run")) s += 4;
+      // Harte Tage hart: Beine und Plyo gehören auf die Tage mit Intervallen/Schwelle
+      if (k === "HS" && its.some(x => x.sport === "run" && x.target?.kind === "quality")) s += 20;
+      else if (k === "HS" && its.some(x => kindOf(x) === "HE" && x.sport === "run")) s += 4;
+      if (item.sport === "run" && item.target?.kind === "quality" && its.some(x => kindOf(x) === "HS")) s += 10;
       if (k === "HS" && its.some(x => kindOf(x) === "HS")) s -= 7; // Beine und Plyo lieber auf verschiedene harte Tage
       if (k === "HE" && near(i - 1).some(x => kindOf(x) === "HS")) s -= 5;
       if (k === "HS" && near(i + 1).some(x => x.isKey && x.sport === "run")) s -= 5;
