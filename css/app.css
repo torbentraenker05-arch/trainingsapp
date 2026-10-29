@@ -238,3 +238,5 @@ button.sync{border:0;background:transparent;padding:6px 0;font:inherit;font-size
   .sync{padding:10px 4px}
 }
 #ns-l{min-width:160px}
+.block.b5{grid-template-columns:minmax(0,1fr) 48px 58px 66px 24px;gap:6px}
+.block.b5 select,.block.b5 input{padding:8px 6px;font-size:14px}

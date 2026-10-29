@@ -36,6 +36,9 @@ export const DEFAULT_RULES = {
   recoveryAfterMatch: true,// am Tag nach dem Spiel nur Regeneration
   qualityBeforeStrength: true, // Ausdauer-Qualität vor Kraft am selben Tag
   hardDaysHard: true,      // harte Einheiten bündeln
+  maxPerDay: 4,            // max. Einheiten pro Tag (ohne Dehnen)
+  maxPerDaySwim: 3,        // … wenn Schwimmen dabei ist
+  excludedIntervals: [],   // abgewählte Intervall-Typen
 };
 
 export const DEFAULT_SETTINGS = {

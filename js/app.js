@@ -160,7 +160,7 @@ function renderCal() {
 export const bySlot = (a, b) => (a.slot ?? 99) - (b.slot ?? 99) || (a.status === "planned") - (b.status === "planned");
 
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-export function entryHTML(w, showDate) {
+export function entryHTML(w, showDate, pos) {
   const s = sportOf(store.settings, w.sport), plan = w.status === "planned", late = plan && w.date < todayStr();
   const bits = [];
   if (+w.distanceKm) bits.push(`<b>${fmtKm(+w.distanceKm)} km</b>`);
@@ -184,7 +184,7 @@ export function entryHTML(w, showDate) {
     w.source === "garmin" ? `<span class="chip">Garmin</span>` : "",
     w.seriesId ? `<span class="chip">Serie</span>` : "",
   ].join("");
-  return `<div class="entry${plan ? " plan" : ""}" style="--c:${s.c}"><button class="entry-main" data-edit="${esc(w.id)}"><span class="sw"></span><span class="t">${name}${sub}${chips}</span><span class="date">${showDate ? dt.getDate() + "." + (dt.getMonth() + 1) + "." : w.target?.part ? `<span class="slotlbl">${esc(w.target.part)}</span>` : ""}</span>${bits.length ? `<span class="m">${bits.join(" · ")}</span>` : ""}${w.note ? `<span class="n">${esc(w.note)}</span>` : ""}</button>${check}</div>`;
+  return `<div class="entry${plan ? " plan" : ""}" style="--c:${s.c}"><button class="entry-main" data-edit="${esc(w.id)}"><span class="sw"></span><span class="t">${name}${sub}${chips}</span><span class="date">${showDate ? dt.getDate() + "." + (dt.getMonth() + 1) + "." : pos ? `<span class="slotlbl">${pos}.</span>` : ""}</span>${bits.length ? `<span class="m">${bits.join(" · ")}</span>` : ""}${w.note ? `<span class="n">${esc(w.note)}</span>` : ""}</button>${check}</div>`;
 }
 function renderDay() {
   const s = ui.sel, t = todayStr();
@@ -192,7 +192,7 @@ function renderDay() {
   $("#dayTitle").textContent = longDate(s);
   const list = store.allWorkouts().filter(w => w.date === s && w.status !== "missed").sort(bySlot);
   const missed = store.allWorkouts().filter(w => w.date === s && w.status === "missed");
-  $("#dayList").innerHTML = (list.length ? list.map(w => entryHTML(w)).join("") : `<div class="empty">${s > t ? "Noch nichts geplant für diesen Tag." : "Kein Training eingetragen."} Tippe auf <b>+ Training</b>, um eine Einheit hinzuzufügen.</div>`)
+  $("#dayList").innerHTML = (list.length ? list.map((w, i) => entryHTML(w, false, list.length > 1 ? i + 1 : null)).join("") : `<div class="empty">${s > t ? "Noch nichts geplant für diesen Tag." : "Kein Training eingetragen."} Tippe auf <b>+ Training</b>, um eine Einheit hinzuzufügen.</div>`)
     + (missed.length ? `<div class="hint">Verfallen: ${missed.map(w => esc(w.title || sportOf(store.settings, w.sport).label)).join(", ")}</div>` : "");
 }
 
