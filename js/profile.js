@@ -1,7 +1,7 @@
-// Profil: Konto, Zonen, Sportarten, Strava, CSV-Import, Backup
+// Profil: Konto, Garmin, Zonen, Sportarten, CSV-Import, Backup
 import { $, $$, esc, todayStr, toast, newId, num, parseTime } from "./util.js";
-import { sb, store, callStrava, callGarmin } from "./store.js";
-import { BASE_SPORTS, sportsOf, DEFAULT_STRAVA_MAP, trimp, learnedRest } from "./sports.js";
+import { sb, store, callGarmin } from "./store.js";
+import { BASE_SPORTS, sportsOf, CSV_TYPE_MAP, trimp, learnedRest } from "./sports.js";
 import { zonesTable } from "./plan-ui.js";
 import { SUPABASE_URL } from "./config.js";
 
@@ -9,7 +9,7 @@ const CB_DOMAIN = new URL(SUPABASE_URL).host;
 let webhookTried = false;
 
 export function renderProfile(passive = false) {
-  if (passive && $("#v-profile")) { renderGarmin(); renderStrava(); return; }
+  if (passive && $("#v-profile")) { renderGarmin(); return; }
   const z = store.settings.zones;
   $("#app").innerHTML = `<section class="view" id="v-profile">
     <h2>Profil</h2>
@@ -19,7 +19,6 @@ export function renderProfile(passive = false) {
 
     <div class="panel" id="garminBox"></div>
 
-    <details class="panel" id="stravaWrap"${store.strava ? " open" : ""}><summary class="hint" style="cursor:pointer">Strava (Alternative – braucht ein kostenpflichtiges Strava-Abo)</summary><div id="stravaBox" style="margin-top:10px"></div></details>
 
     <div class="panel stack"><div class="panel-h" style="margin:0"><h3>Zonen</h3></div>
       <div class="row2"><div class="field"><label for="p-dist">Referenz-Distanz</label><select class="in" id="p-dist">${[3, 5, 10, 21.1, 42.2].map(d => `<option value="${d}"${Number(z.refDistanceKm) === d ? " selected" : ""}>${d === 21.1 ? "Halbmarathon" : d === 42.2 ? "Marathon" : d + " km"}</option>`).join("")}</select></div>
@@ -68,7 +67,6 @@ export function renderProfile(passive = false) {
   $("#exportBtn").onclick = exportBackup;
   $("#backupFile").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) importBackup(f); };
   renderGarmin();
-  renderStrava();
 }
 
 // ---------- Garmin (Personal API) ----------
@@ -110,59 +108,6 @@ function renderSports() {
   const custom = store.settings.sports;
   $("#sportList").innerHTML = Object.entries(sportsOf(store.settings)).map(([k, s]) => `<div class="sportrow"><i class="dot" style="--c:${s.c};width:14px;height:14px;justify-self:center"></i><span>${esc(s.label)}${s.km ? ' <span class="hint">· mit Distanz</span>' : ""}</span>${custom[k] ? `<button class="ghost" data-delsport="${esc(k)}">Entfernen</button>` : "<span></span>"}</div>`).join("");
   $("#sportList").onclick = e => { const b = e.target.closest("[data-delsport]"); if (!b) return; const s = { ...store.settings.sports }; delete s[b.dataset.delsport]; store.saveSettings({ sports: s }); renderSports(); };
-}
-
-// ---------- Strava ----------
-function renderStrava() {
-  const box = $("#stravaBox"); if (!box) return;
-  const app = store.stravaApp, con = store.strava;
-  let h = con ? `<div class="panel-h"><span class="chip done">verbunden</span></div>` : "";
-  if (!app) {
-    h += `<p class="hint">Einmalig: Lege bei Strava eine eigene API-Anwendung an. Das dauert ca. 2 Minuten und kostet nichts.</p>
-      <ol class="hint steps">
-        <li>Am besten am PC <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> öffnen.</li>
-        <li>Ausfüllen: <b>Application Name</b> „Trainingsbuch“, <b>Category</b> „Training“, <b>Website</b> <code>${esc(location.origin + location.pathname)}</code></li>
-        <li><b>Authorization Callback Domain</b>: <code>${esc(CB_DOMAIN)}</code></li>
-        <li>Speichern (ein Logo musst du ggf. hochladen – irgendein Bild genügt). Dann <b>Client ID</b> und <b>Client Secret</b> hier eintragen.</li>
-      </ol>
-      <form class="stack" id="stravaApp" novalidate>
-        <div class="row2"><div class="field"><label for="s-id">Client ID</label><input type="text" id="s-id" inputmode="numeric" autocomplete="off"></div>
-        <div class="field"><label for="s-sec">Client Secret</label><input type="password" id="s-sec" autocomplete="off"></div></div>
-        <div class="row"><button class="btn" type="submit">Speichern</button><span class="hint" id="s-msg"></span></div>
-      </form>
-      <p class="hint" style="margin:0">Das Secret wird nur auf dem Server gespeichert und nie wieder an die App geschickt.</p>`;
-  } else if (!con) {
-    h += `<p class="hint">Strava-App eingerichtet (Client ID ${esc(app.client_id)}). Jetzt dein Konto verbinden: Die App darf deine Aktivitäten nur lesen.</p>
-      <div class="row"><button class="btn" id="s-connect">Mit Strava verbinden</button><button class="ghost" id="s-reset">Client-Daten ändern</button></div><p class="hint" id="s-msg"></p>`;
-  } else {
-    const last = con.last_sync ? new Date(con.last_sync).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "noch nie";
-    h += `<p class="hint">Verbunden als <b>${esc(con.athlete_name || "Strava-Athlet")}</b> · letzter Abgleich ${esc(last)}<br>Automatischer Import: ${app.subscription_id ? '<span class="status-ok">aktiv</span> – neue Aktivitäten kommen von selbst' : "nicht aktiv"}</p>
-      <div class="row"><button class="btn" id="s-sync">Jetzt abgleichen</button>${app.subscription_id ? "" : '<button class="btn secondary" id="s-hook">Automatik aktivieren</button>'}<button class="btn danger small" id="s-off">Trennen</button></div>
-      <p class="hint" id="s-msg"></p>
-      <details><summary class="hint" style="cursor:pointer">Zuordnung Strava-Sportart → App</summary><div id="s-map" style="margin-top:8px"></div></details>`;
-  }
-  box.innerHTML = h;
-  const msg = t => { const m = $("#s-msg"); if (m) m.textContent = t; };
-  const run = async (fn, busy) => { msg(busy); try { await fn(); } catch (e) { msg("Fehler: " + e.message); } };
-  const f = $("#stravaApp");
-  if (f) f.onsubmit = e => { e.preventDefault(); run(async () => { await callStrava("save_app", { client_id: $("#s-id").value, client_secret: $("#s-sec").value }); await store.sync(); toast("Strava-App gespeichert"); }, "Speichere…"); };
-  const c = $("#s-connect");
-  if (c) c.onclick = () => run(async () => { const { url } = await callStrava("auth_url", { return_to: location.origin + location.pathname }); location.href = url; }, "Weiter zu Strava…");
-  const rs = $("#s-reset"); if (rs) rs.onclick = () => { store.stravaApp = null; renderStrava(); };
-  const sy = $("#s-sync");
-  if (sy) sy.onclick = () => run(async () => { const r = await callStrava("sync"); await store.sync(); msg(`${r.created} neu, ${r.matched} geplante abgehakt, ${r.updated} aktualisiert`); }, "Gleiche ab…");
-  const hk = $("#s-hook");
-  const hook = () => run(async () => { await callStrava("subscribe_webhook"); await store.sync(); toast("Automatischer Import aktiv"); }, "Aktiviere…");
-  if (hk) hk.onclick = hook;
-  if (con && !app.subscription_id && !webhookTried) { webhookTried = true; hook(); }
-  const off = $("#s-off");
-  if (off) off.onclick = () => run(async () => { await callStrava("disconnect"); await store.sync(); toast("Strava getrennt"); }, "Trenne…");
-  const map = $("#s-map");
-  if (map) {
-    const S = sportsOf(store.settings), cur = { ...DEFAULT_STRAVA_MAP, ...store.settings.stravaMap };
-    map.innerHTML = Object.keys(cur).sort().map(t => `<div class="maprow"><span>${esc(t)}</span><select class="in" data-st="${esc(t)}">${Object.entries(S).map(([k, s]) => `<option value="${esc(k)}"${cur[t] === k ? " selected" : ""}>${esc(s.label)}</option>`).join("")}</select></div>`).join("") + `<p class="hint">Gilt für neue Importe. Unbekannte Sportarten landen bei „Sonstiges“.</p>`;
-    map.onchange = e => { const s = e.target.closest("[data-st]"); if (!s) return; store.saveSettings({ stravaMap: { ...store.settings.stravaMap, [s.dataset.st]: s.value } }); toast("Zuordnung gespeichert"); };
-  }
 }
 
 // ---------- CSV ----------
@@ -215,7 +160,7 @@ function parseDur(s, header) {
 }
 function mapType(t) {
   const raw = String(t || "").trim(), key = raw.replace(/\s+/g, "");
-  const m = { ...DEFAULT_STRAVA_MAP, ...store.settings.stravaMap };
+  const m = CSV_TYPE_MAP;
   if (m[key]) return m[key];
   const l = raw.toLowerCase();
   const custom = Object.entries(store.settings.sports).find(([, s]) => s.label.toLowerCase() === l);

@@ -85,19 +85,9 @@ async function start(session) {
   $("#tabs").hidden = false;
   render();
   await store.sync();
-  handleHash();
   autoGarmin();
 }
 
-function handleHash() {
-  const h = new URLSearchParams(location.hash.slice(1));
-  if (h.has("strava")) {
-    if (h.get("strava") === "ok") toast("Strava verbunden – Aktivitäten werden geladen");
-    else toast("Strava: " + (h.get("msg") || "Verbindung fehlgeschlagen"));
-    history.replaceState(null, "", location.pathname);
-    ui.view = "profile"; store.fullResync().then(render); render();
-  }
-}
 
 // ---------- Kalender ----------
 function renderLegendHTML() {
@@ -180,7 +170,6 @@ export function entryHTML(w, showDate, pos) {
   const chips = [
     plan ? `<span class="chip ${late ? "late" : "plan"}">${late ? "Offen" : "Geplant"}</span>` : "",
     plan && w.isKey ? `<span class="chip key">Schlüssel</span>` : "",
-    w.source === "strava" ? `<span class="chip">Strava</span>` : "",
     w.source === "garmin" ? `<span class="chip">Garmin</span>` : "",
     w.seriesId ? `<span class="chip">Serie</span>` : "",
   ].join("");
@@ -230,7 +219,7 @@ export function openSheet(w) {
       <div class="field"><label for="f-rep">Wiederholen</label><select class="in" id="f-rep"><option value="0">Nicht wiederholen</option><option value="1">Jeden Tag</option><option value="7">Jede Woche</option><option value="14">Alle 2 Wochen</option></select></div>
       <div class="field" id="repUntilField" hidden><label for="f-until">Bis einschließlich</label><input type="date" id="f-until" value="${ymd(addDays(parse(w.date), 27))}"></div>
     </div>` : ""}
-    ${w.source === "strava" || w.source === "garmin" ? `<p class="hint">Aus ${w.source === "garmin" ? "Garmin" : "Strava"} importiert. Änderungen dort überschreiben diese Werte beim nächsten Abgleich.</p>` : ""}
+    ${w.source === "garmin" ? `<p class="hint">Aus Garmin importiert. Änderungen dort überschreiben diese Werte beim nächsten Abgleich.</p>` : ""}
     ${w.planId && !isNew ? `<p class="hint">Teil deines Plans. Wenn du hier etwas änderst, bleibt die Einheit beim Neuberechnen des Plans erhalten.</p>` : ""}
     <div class="actions" id="f-actions">
       ${isNew ? "<span></span>" : `<button type="button" class="btn danger" id="delBtn">Löschen</button>`}
@@ -284,7 +273,7 @@ export function openSheet(w) {
       source: w.source || "manual",
     };
     data.trimp = done ? trimp(data.durationMin, data.avgHr, store.settings.zones) : null;
-    if (w.source === "strava" && w.trimp && data.avgHr === w.avgHr && data.durationMin === Math.round(w.durationMin || 0)) data.trimp = w.trimp;
+    if (w.source === "garmin" && w.trimp && data.avgHr === w.avgHr && data.durationMin === Math.round(w.durationMin || 0)) data.trimp = w.trimp;
     if (sport === "gym" && !data.focus) { toast("Bitte einen Fokus wählen"); return; }
     if (isNew) {
       const step = +($("#f-rep")?.value || 0);

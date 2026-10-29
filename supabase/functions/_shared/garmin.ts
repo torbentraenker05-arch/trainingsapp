@@ -1,6 +1,6 @@
 // Garmin Connect Personal API: Token aus dem persönlichen Schlüssel, Aktivitäten lesen und importieren.
 import { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
-import { trimp } from "./strava.ts";
+import { trimp } from "./common.ts";
 import { Decoder, Stream } from "npm:@garmin/fitsdk@21.217.0";
 import { unzipSync } from "npm:fflate@0.8.2";
 import { analyzeRecovery } from "./fit.js";
@@ -95,7 +95,7 @@ async function analyzeRecent(db: SupabaseClient, userId: string, thr: number) {
     try {
       const bytes = await garminBytes(db, userId, "/download-service/files/activity/" + w.garmin_id);
       const rec = analyzeRecovery(bytes, { Decoder, Stream, unzipSync }, thr);
-      await db.from("workouts").update({ fit_checked: true, recovery: rec.values.length ? rec : null }).eq("id", w.id);
+      await db.from("workouts").update({ fit_checked: true, recovery: rec.values.length || rec.reps.length ? rec : null }).eq("id", w.id);
       if (rec.values.length) n++;
     } catch (e) {
       console.warn("fit", w.garmin_id, (e as Error).message);

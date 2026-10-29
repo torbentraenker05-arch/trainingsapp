@@ -1,5 +1,5 @@
 // Service Worker: App offline verfügbar machen. Bei jeder Änderung VERSION erhöhen.
-const VERSION = "v6";
+const VERSION = "v7";
 const CACHE = "trainingsbuch-" + VERSION;
 const SHELL = ["./", "index.html", "css/app.css", "manifest.webmanifest", "icons/icon.svg", "icons/apple-touch-icon.png",
   "js/app.js", "js/util.js", "js/sports.js", "js/store.js", "js/config.js", "js/planner.js", "js/plan-ui.js", "js/stats.js", "js/profile.js", "js/proposals.js"];

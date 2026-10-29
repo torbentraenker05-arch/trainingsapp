@@ -1,5 +1,5 @@
 // Garmin-Aktionen der App (mit Login): Schlüssel speichern, abgleichen, trennen.
-import { admin, cors, json } from "../_shared/strava.ts";
+import { admin, cors, json } from "../_shared/common.ts";
 import { exchangeKey, syncGarmin } from "../_shared/garmin.ts";
 
 Deno.serve(async (req) => {

@@ -1,4 +1,4 @@
-// Sportarten, Strava-Zuordnung, Zonen und Standardeinstellungen
+// Sportarten, CSV-Zuordnung, Zonen und Standardeinstellungen
 import { fmtPace } from "./util.js";
 
 export const BASE_SPORTS = {
@@ -19,7 +19,8 @@ export const FOCUS = { push: "Push", pull: "Pull", legs: "Beine", full: "Ganzkö
 // Ausdauer-Sportarten, für die der Plan Zonen und Intervalle erzeugt
 export const ENDURANCE = new Set(["run", "bike", "swim", "row", "skierg", "stepper"]);
 
-export const DEFAULT_STRAVA_MAP = {
+// Aktivitätstypen aus CSV-Exporten (Strava/Garmin, ohne Leerzeichen) → App-Sportart
+export const CSV_TYPE_MAP = {
   Run: "run", TrailRun: "run", VirtualRun: "run",
   Ride: "bike", VirtualRide: "bike", GravelRide: "bike", MountainBikeRide: "bike", EBikeRide: "bike", EMountainBikeRide: "bike", Velomobile: "bike", Handcycle: "bike",
   Swim: "swim", Rowing: "row", VirtualRow: "row", StairStepper: "stepper",
@@ -45,7 +46,6 @@ export const DEFAULT_SETTINGS = {
   zones: { refDistanceKm: 5, refTime: "25:00", hrMax: 190, hrRest: 60 },
   rules: { ...DEFAULT_RULES },
   sports: {},      // eigene Sportarten {key:{label,c,km}}
-  stravaMap: {},   // Überschreibungen
   dismissed: [],   // abgelehnte Vorschläge
 };
 

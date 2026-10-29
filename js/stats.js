@@ -61,7 +61,7 @@ export function renderStats() {
   }
   $("#loadChart").innerHTML = lineSVG(pts);
   const last = pts[pts.length - 1], ratio = last.c > 0 ? last.a / last.c : null;
-  $("#acwr").innerHTML = ratio == null ? "Noch keine Belastungsdaten. Sie kommen automatisch aus Strava (Puls)." :
+  $("#acwr").innerHTML = ratio == null ? "Noch keine Belastungsdaten. Sie kommen automatisch aus Garmin (Puls)." :
     `Verhältnis akut/chronisch: <b>${ratio.toFixed(2)}</b> – ${ratio > 1.5 ? '<span class="status-err">deutlich erhöht, Verletzungsrisiko steigt</span>' : ratio > 1.3 ? "erhöht, achte auf Erholung" : ratio < 0.8 ? "unter deinem Niveau (Entlastung oder Pause)" : '<span class="status-ok">im grünen Bereich</span>'}`;
 
   // Plan-Erfüllung: letzte 6 Wochen + aktuelle
@@ -104,7 +104,7 @@ export function renderStats() {
   ].map(([l, v, s]) => `<div class="pb"><div class="label">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
   const rec = done.slice().sort((x, y) => x.date < y.date ? 1 : -1).slice(0, 5);
-  $("#recent").innerHTML = rec.length ? rec.map(w => entryHTML(w, true)).join("") : `<div class="empty">Sobald du Trainings einträgst oder Strava verbindest, siehst du hier Kilometer, Zeiten und Bestwerte.</div>`;
+  $("#recent").innerHTML = rec.length ? rec.map(w => entryHTML(w, true)).join("") : `<div class="empty">Sobald du Trainings einträgst oder Garmin verbindest, siehst du hier Kilometer, Zeiten und Bestwerte.</div>`;
 }
 
 function niceStep(max) { const steps = [2, 5, 10, 20, 25, 50, 100, 200, 500]; return max === 0 ? 5 : steps.find(s => s * 4 >= max) || Math.ceil(max / 4 / 100) * 100; }

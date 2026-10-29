@@ -10,7 +10,7 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSess
 const W_COLS = { id: "id", date: "date", slot: "slot", sport: "sport", focus: "focus", status: "status", title: "title", note: "note",
   distanceKm: "distance_km", durationMin: "duration_min", avgHr: "avg_hr", maxHr: "max_hr", elevM: "elev_m", trimp: "trimp", rpe: "rpe",
   intervals: "intervals", target: "target", isKey: "is_key", hard: "hard", locked: "locked", source: "source", planId: "plan_id",
-  stravaId: "strava_id", garminId: "garmin_id", recovery: "recovery", deleted: "deleted", updatedAt: "updated_at" };
+  garminId: "garmin_id", recovery: "recovery", deleted: "deleted", updatedAt: "updated_at" };
 const P_COLS = { id: "id", name: "name", start: "start_date", end: "end_date", config: "config", active: "active", deleted: "deleted", createdAt: "created_at", updatedAt: "updated_at" };
 const NUMERIC = new Set(["distanceKm", "durationMin", "elevM", "trimp"]);
 
@@ -22,7 +22,6 @@ function toDb(row, cols) {
 function fromDb(row, cols) {
   const o = {};
   for (const [k, c] of Object.entries(cols)) if (row[c] !== undefined) o[k] = NUMERIC.has(k) && row[c] != null ? Number(row[c]) : row[c];
-  if (o.stravaId != null) o.stravaId = Number(o.stravaId);
   if (o.garminId != null) o.garminId = Number(o.garminId);
   return o;
 }
@@ -32,8 +31,6 @@ export const store = {
   workouts: new Map(),
   plans: new Map(),
   settings: clone(DEFAULT_SETTINGS),
-  strava: null,       // {athlete_name,last_sync} oder null
-  stravaApp: null,    // {client_id,subscription_id} oder null
   garmin: null,       // {last_sync,last_error} oder null
   outbox: {},         // "w:<id>" | "p:<id>" | "s" → Datensatz
   lastPull: null,
@@ -53,12 +50,10 @@ export const store = {
     this.settings = mergeSettings(c?.settings);
     this.outbox = c?.outbox || {};
     this.lastPull = c?.lastPull || null;
-    this.strava = c?.strava || null;
-    this.stravaApp = c?.stravaApp || null;
     this.garmin = c?.garmin || null;
   },
   persist() {
-    lsSet(this.key(), { workouts: [...this.workouts.values()], plans: [...this.plans.values()], settings: this.settings, outbox: this.outbox, lastPull: this.lastPull, strava: this.strava, stravaApp: this.stravaApp, garmin: this.garmin });
+    lsSet(this.key(), { workouts: [...this.workouts.values()], plans: [...this.plans.values()], settings: this.settings, outbox: this.outbox, lastPull: this.lastPull, garmin: this.garmin });
   },
   pending() { return Object.keys(this.outbox).length; },
 
@@ -151,10 +146,6 @@ export const store = {
       const { data: s } = await sb.from("settings").select("data").eq("user_id", this.uid).maybeSingle();
       if (s) this.settings = mergeSettings(s.data);
     }
-    const { data: st } = await sb.from("strava_tokens").select("athlete_name,last_sync").eq("user_id", this.uid).maybeSingle();
-    this.strava = st || null;
-    const { data: sa } = await sb.from("strava_apps").select("client_id,subscription_id").eq("user_id", this.uid).maybeSingle();
-    this.stravaApp = sa || null;
     const { data: gk } = await sb.from("garmin_keys").select("last_sync,last_error,created_at").eq("user_id", this.uid).maybeSingle();
     this.garmin = gk || null;
     this.lastPull = maxTs;
@@ -165,10 +156,9 @@ export const store = {
 function mergeSettings(s) {
   const d = clone(DEFAULT_SETTINGS);
   s = s || {};
-  return { ...d, ...s, zones: { ...d.zones, ...(s.zones || {}) }, rules: { ...DEFAULT_RULES, ...(s.rules || {}) }, sports: { ...(s.sports || {}) }, stravaMap: { ...(s.stravaMap || {}) }, dismissed: s.dismissed || [] };
+  return { ...d, ...s, zones: { ...d.zones, ...(s.zones || {}) }, rules: { ...DEFAULT_RULES, ...(s.rules || {}) }, sports: { ...(s.sports || {}) }, dismissed: s.dismissed || [] };
 }
 
-export const callStrava = (action, extra) => callFn("strava", action, extra);
 export const callGarmin = (action, extra) => callFn("garmin", action, extra);
 
 // Garmin automatisch abgleichen, wenn der letzte Abgleich länger als 30 min her ist

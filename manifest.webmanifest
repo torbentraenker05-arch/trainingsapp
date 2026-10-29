@@ -1,7 +1,7 @@
 {
   "name": "Trainingsbuch",
   "short_name": "Training",
-  "description": "Training tracken, Pläne erstellen, Strava-Sync",
+  "description": "Training tracken, Pläne erstellen, Garmin-Sync",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

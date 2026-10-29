@@ -1,7 +1,7 @@
 // Vorschläge, die du bestätigen oder ablehnen kannst: verpasste Einheiten, Wochenanpassung, neue Zonen
 import { esc, ymd, parse, addDays, mondayOf, todayStr, shortDate, WD, fmtTime, parseTime, toast, addDaysStr } from "./util.js";
 import { store } from "./store.js";
-import { sportOf, riegel, paceZones } from "./sports.js";
+import { sportOf } from "./sports.js";
 import { rescheduleOptions, weekBalance } from "./planner.js";
 
 const dismissed = k => store.settings.dismissed.includes(k);
@@ -42,22 +42,41 @@ export function proposals() {
       actions: [["Anpassen", () => { store.putWorkouts(runs.map(w => scaleRun(w, 0.85))); dismiss(kAdj); toast(runs.length + " Läufe angepasst"); }], ["Nein, so lassen", () => dismiss(kAdj)]] });
   }
 
-  // 3. Zonen: schnellere Läufe oder höherer Maximalpuls aus Strava/Einträgen
-  const since = addDaysStr(t, -56);
-  const runs = all.filter(w => w.status === "done" && w.sport === "run" && w.date >= since && +w.distanceKm >= 3 && +w.durationMin > 0);
-  const pz = paceZones(z);
-  if (pz && runs.length) {
-    const best = Math.min(...runs.map(w => riegel(+w.distanceKm, w.durationMin * 60, 5)));
-    const cur = riegel(Number(z.refDistanceKm) || 5, parseTime(z.refTime), 5);
-    const k = "z5:" + Math.round(best);
-    if (best < cur * 0.98 && !dismissed(k)) out.push({ key: k, text: `Deine Läufe der letzten 8 Wochen deuten auf eine 5-km-Zeit von <b>${fmtTime(best)}</b> hin (bisher ${fmtTime(cur)}). Pace-Zonen aktualisieren?`,
-      actions: [["Aktualisieren", () => { store.saveSettings({ zones: { ...store.settings.zones, refDistanceKm: 5, refTime: fmtTime(best) } }); toast("Zonen aktualisiert – gilt für neu berechnete Pläne"); }], ["Ablehnen", () => dismiss(k)]] });
+  // 3. Pace-Zonen: tatsächliche Intervall-Pace (aus den FIT-Dateien) gegen die geplante, letzte 3 Intervall-Läufe
+  const ivRuns = all.filter(w => w.status === "done" && w.sport === "run" && w.date >= addDaysStr(t, -60) && w.recovery?.reps?.length && planPace(w))
+    .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  const refSec = parseTime(z.refTime);
+  if (ivRuns.length === 3 && refSec) {
+    const ratios = ivRuns.map(w => { const reps = w.recovery.reps, m = reps.reduce((s, r) => s + r.m, 0); return (reps.reduce((s, r) => s + r.sec, 0) / m * 1000) / planPace(w); });
+    const faster = ratios.every(r => r < 0.98), slower = ratios.every(r => r > 1.04);
+    if (faster || slower) {
+      const r = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+      const newRef = fmtTime(refSec * r), diff = Math.round(Math.abs(1 - r) * 100);
+      const k = "zp:" + newRef;
+      if (!dismissed(k)) out.push({ key: k, text: `Deine letzten 3 Intervall-Läufe warst du im Schnitt <b>${diff} % ${faster ? "schneller" : "langsamer"}</b> als geplant. Pace-Zonen anpassen (${esc(String(z.refDistanceKm))} km: ${esc(z.refTime)} → <b>${newRef}</b>)?`,
+        actions: [["Anpassen", () => { store.saveSettings({ zones: { ...store.settings.zones, refTime: newRef } }); dismiss(k); toast("Zonen angepasst – gilt beim nächsten Neuberechnen des Plans"); }], ["Ablehnen", () => dismiss(k)]] });
+    }
   }
-  const maxHr = Math.max(0, ...all.filter(w => w.status === "done" && w.date >= since).map(w => +w.maxHr || 0));
+
+  // 4. Maximalpuls: nur Werte, die von einem zweiten Lauf bestätigt werden (einzelne Messfehler wie 211 zählen nicht)
+  const maxHr = robustMaxHr(all.filter(w => w.status === "done" && w.date >= addDaysStr(t, -180)).map(w => +w.maxHr || 0));
   const kHr = "hr:" + maxHr;
-  if (maxHr > (Number(z.hrMax) || 190) && maxHr < 230 && !dismissed(kHr)) out.push({ key: kHr, text: `Gemessener Maximalpuls <b>${maxHr} bpm</b> liegt über deinem eingestellten (${z.hrMax}). Übernehmen?`,
+  if (maxHr && maxHr > (Number(z.hrMax) || 190) && !dismissed(kHr)) out.push({ key: kHr, text: `Gemessener Maximalpuls <b>${maxHr} bpm</b> liegt über deinem eingestellten (${z.hrMax}). Übernehmen?`,
     actions: [["Übernehmen", () => store.saveSettings({ zones: { ...store.settings.zones, hrMax: maxHr } })], ["Ablehnen", () => dismiss(kHr)]] });
   return out;
+}
+
+// Geplante Intervall-Pace (s/km), gewichtet nach Strecke; null, wenn die Einheit keine Strecken-Intervalle hatte
+function planPace(w) {
+  const sets = (w.intervals?.sets || []).filter(x => x.m && x.pace && !x.uphill);
+  const m = sets.reduce((s, x) => s + x.m * x.reps, 0);
+  return m ? sets.reduce((s, x) => s + x.m * x.reps * x.pace, 0) / m : null;
+}
+// Höchster Puls, den mindestens ein zweiter Wert bis auf 5 bpm bestätigt
+export function robustMaxHr(values) {
+  const v = values.filter(x => x >= 120 && x <= 225).sort((a, b) => b - a);
+  for (let i = 0; i + 1 < v.length; i++) if (v[i] - v[i + 1] <= 5) return v[i];
+  return null;
 }
 
 function scaleRun(w, f) {
