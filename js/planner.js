@@ -195,7 +195,9 @@ export function normBlock(b) {
   const unit = b.unit || (b.sport === "run" ? "km" : "min");
   return { sport: b.sport, focus: b.focus || null, kind: b.sport === "run" ? (b.kind || "easy") : null, unit,
     amount: Number(b.amount ?? b.durationMin) || (unit === "km" ? 8 : 30), incPct: Number(b.incPct) || 0,
-    days: [...new Set(days)].sort(), perWeek: days.length ? days.length : Math.max(0, Number(b.perWeek) || 0) };
+    days: [...new Set(days)].sort(), perWeek: days.length ? days.length : Math.max(0, Number(b.perWeek) || 0),
+    // nur bei Intervallen: erlaubte Typen (leer = alle)
+    types: Array.isArray(b.types) ? b.types.filter(t => INTERVAL_TYPES[t]) : [] };
 }
 
 // ---------- Wochen-Brett: Einheiten auf Tage verteilen ----------
@@ -344,12 +346,16 @@ export function generatePlan(cfg, settings, existing, history = {}) {
   weeks.forEach((w, i) => { if (i > 0 && !w.deload && !weeks[i - 1].deload && ["base", "build", "peak"].includes(w.phase)) lvl++; w.level = lvl; });
 
   // Qualitäts-Lauf passend zur Phase; Intervall-Typen wechseln und wiederholen sich nicht in der Folgewoche
-  const quality = (wk, wi) => {
+  // allowed: am Intervall-Baustein angehakte Typen (leer = alle, die unter Regeln erlaubt sind)
+  const quality = (wk, wi, allowed = []) => {
     if (wk.phase === "race") return runQuality("Vorbelastung", [{ reps: 3, sec: 60, pace: P.rp || P.z.interval[0], rest: 90 }], 2, 1, "race", P.z, "opener", false);
     if (wk.phase === "taper") return runQuality("Intervalle", [{ reps: 4, m: 400, pace: P.z.interval[0], rest: 90 }], 2, 1.5, "interval", P.z, "sharpen");
     if (wk.phase === "recovery") return easyRun(6, P, true);
     if (wk.phase === "peak" && race && !weekTypes.includes("racepace")) { weekTypes.push("racepace"); return raceSession(wi, P, D, wk.deload); }
-    let pool = (wk.phase === "base" && !race && wi >= 4 ? [...PHASE_TYPES.base, ...PHASE_TYPES.build] : PHASE_TYPES[wk.phase] || PHASE_TYPES.base).filter(t => !excluded.has(t));
+    const ok = t => !excluded.has(t) && (!allowed.length || allowed.includes(t));
+    let pool = (wk.phase === "base" && !race && wi >= 4 ? [...PHASE_TYPES.base, ...PHASE_TYPES.build] : PHASE_TYPES[wk.phase] || PHASE_TYPES.base).filter(ok);
+    // passt keiner der angehakten Typen zur Phase, trotzdem nur angehakte nehmen
+    if (!pool.length) pool = Object.keys(INTERVAL_TYPES).filter(ok);
     if (!pool.length) pool = ["threshold"];
     let cand = pool.filter(t => !lastTypes.includes(t) && !weekTypes.includes(t));
     if (weekTypes.length) cand = [...cand.filter(t => FAST.has(t) !== FAST.has(weekTypes[0])), ...cand];
@@ -372,7 +378,7 @@ export function generatePlan(cfg, settings, existing, history = {}) {
     const key = { blockKey: "b" + bi, fromBlock: true };
     if (b.sport === "run") {
       const km = b.unit === "km" ? amount : amount * 60 / easyMid(P.z);
-      if (b.kind === "intervals") return { ...quality(wk, wi), ...key };
+      if (b.kind === "intervals") return { ...quality(wk, wi, b.types), ...key };
       if (b.kind === "long") return ["race", "recovery"].includes(wk.phase) ? null : { ...longRun(km, P, wk.phase, D), ...key };
       return { ...easyRun(km, P, wk.phase === "recovery"), ...key };
     }

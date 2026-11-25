@@ -253,7 +253,8 @@ function stepBlocks(c) {
     const iv = b.sport === "run" && b.kind === "intervals";
     return `<div class="bcard">
       <div class="row"><select class="in grow" data-b="${i}" data-f="kind" aria-label="Baustein">${opts(blockLabel(b))}</select><button type="button" class="x" data-delb="${i}" aria-label="Baustein entfernen">✕</button></div>
-      ${iv ? `<p class="hint" style="margin:0">Inhalt wechselt automatisch je Phase (400 m bis 2 km, Pyramide, Schwelle …). Typen abwählen unter <b>Regeln</b>.</p>` : `<div class="row bamt">
+      ${iv ? `<p class="hint" style="margin:0">Welche Intervalle dürfen vorkommen? Der Plan wechselt zwischen den angehakten ab, passend zur Phase.</p>
+        <div class="sports">${Object.entries(INTERVAL_TYPES).map(([k, l]) => `<label style="--c:var(--run)"><input type="checkbox" data-iv="${i}:${k}"${!b.types.length || b.types.includes(k) ? " checked" : ""}><i></i>${esc(l)}</label>`).join("")}</div>` : `<div class="row bamt">
         <input type="number" data-b="${i}" data-f="amount" value="${b.amount}" min="1" step="${b.unit === "km" ? 0.5 : 5}" aria-label="Menge">
         <select class="in" data-b="${i}" data-f="unit" aria-label="Einheit"><option value="km"${b.unit === "km" ? " selected" : ""}>km</option><option value="min"${b.unit === "min" ? " selected" : ""}>min</option></select>
         <span class="hint">+</span><input type="number" data-b="${i}" data-f="incPct" value="${b.incPct}" min="0" max="50" step="1" aria-label="Steigerung pro Woche in Prozent"><span class="hint">% pro Woche</span></div>`}
@@ -290,6 +291,12 @@ function bindBlocks(c) {
       }
       if (el.dataset.f === "unit") b.unit = el.value;
       else b[el.dataset.f] = Math.max(0, num(el.value) || 0);
+    }
+    if (el.dataset.iv) {
+      const bi = +el.dataset.iv.split(":")[0], b = c.blocks[bi];
+      const on = $$(`[data-iv^="${bi}:"]`).filter(x => x.checked).map(x => x.dataset.iv.split(":")[1]);
+      if (!on.length) { el.checked = true; toast("Mindestens ein Intervall-Typ muss angehakt bleiben"); return; }
+      b.types = on.length === Object.keys(INTERVAL_TYPES).length ? [] : on;
     }
     if (el.dataset.cx) c.cross.sports = $$("[data-cx]").filter(x => x.checked).map(x => x.dataset.cx);
     if (el.id === "cx-f") c.cross.perWeekFootball = Math.max(0, num(el.value) || 0);
