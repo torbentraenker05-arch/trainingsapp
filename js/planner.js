@@ -6,8 +6,9 @@ const RACE_CAP = { 5: 45, 10: 55, 21.1: 70, 42.2: 90 };
 export const RACES = [{ km: 5, label: "5 km" }, { km: 10, label: "10 km" }, { km: 21.1, label: "Halbmarathon" }, { km: 42.2, label: "Marathon" }];
 export const CROSS_SPORTS = ["bike", "row", "stepper", "skierg", "swim"];
 export const INTERVAL_TYPES = {
-  i400: "10×400 m", i600: "8×600 m", i800: "6×800 m", i1000: "5×1000 m", i1600: "4×1,6 km", i2000: "3×2 km",
-  pyramid: "Pyramide", hills: "Bergintervalle", threshold: "Schwelle",
+  i400: "400 m", i600: "600 m", i800: "800 m", i1000: "1000 m", i1600: "1,6 km", i2000: "2 km",
+  pyramid: "Pyramide", hills: "Bergintervalle", threshold: "Schwelle (Minuten)",
+  tdl: "Tempodauerlauf", tempo2: "Tempo 2× km",
 };
 
 // ---------- Klassifizierung ----------
@@ -116,35 +117,56 @@ function setText(s) {
 
 // Abwechslung: Typen je Phase, nie derselbe Typ wie in der Vorwoche
 const PHASE_TYPES = {
-  base: ["hills", "i400", "i600", "threshold"],
-  build: ["i800", "i1000", "i1600", "i2000", "pyramid", "threshold", "hills"],
-  peak: ["i1000", "i1600", "i2000", "pyramid"],
+  base: ["hills", "i400", "i600", "threshold", "tdl"],
+  build: ["i800", "i1000", "i1600", "i2000", "pyramid", "threshold", "hills", "tdl", "tempo2"],
+  peak: ["i1000", "i1600", "i2000", "pyramid", "tempo2"],
 };
 const FAST = new Set(["i400", "i600", "i800", "i1000", "pyramid", "hills"]);
 
+// Steigerung je Typ: Wiederholungen [Start, max]; bei jedem weiteren Einsatz des Typs eine mehr
+const PROG = { i400: [8, 14], i600: [6, 10], i800: [5, 10], i1000: [5, 8], i1600: [3, 6], i2000: [3, 5], hills: [8, 14] };
+const step = (type, k) => Math.min(PROG[type][1], PROG[type][0] + k);
+
 // learned: gelernte Pause in Sekunden (aus der Pulserholung deiner letzten Intervall-Läufe) oder null
-function intervalSession(type, P, deload, learned) {
+// k: wie oft dieser Typ im Plan schon dran war (0 = erstes Mal) → steigende Wiederholungen
+function intervalSession(type, P, deload, learned, k = 0) {
   const { z } = P, iv = z.interval[0], th = z.threshold[0], tenK = z.pace(10);
   const red = n => deload ? Math.max(2, Math.round(n * 0.65)) : n;
   const R = std => learned ? { rest: learned, walk: true } : { rest: std };
   let label = "Intervalle", sets, wu = 2, cd = 1.5, zone = "interval";
   switch (type) {
-    case "i400": sets = [{ reps: red(10), m: 400, pace: iv * 0.97, ...R(75) }]; break;
-    case "i600": sets = [{ reps: red(8), m: 600, pace: iv * 0.98, ...R(90) }]; break;
-    case "i800": sets = [{ reps: red(6), m: 800, pace: iv, ...R(120) }]; break;
-    case "i1000": sets = [{ reps: red(5), m: 1000, pace: iv, ...R(120) }]; break;
-    case "i1600": sets = [{ reps: red(4), m: 1600, pace: (iv + tenK) / 2, ...R(150) }]; break;
-    case "i2000": sets = [{ reps: red(3), m: 2000, pace: tenK, ...R(180) }]; break;
-    case "pyramid":
+    case "i400": sets = [{ reps: red(step(type, k)), m: 400, pace: iv * 0.97, ...R(75) }]; break;
+    case "i600": sets = [{ reps: red(step(type, k)), m: 600, pace: iv * 0.98, ...R(90) }]; break;
+    case "i800": sets = [{ reps: red(step(type, k)), m: 800, pace: iv, ...R(120) }]; break;
+    case "i1000": sets = [{ reps: red(step(type, k)), m: 1000, pace: iv, ...R(120) }]; break;
+    case "i1600": sets = [{ reps: red(step(type, k)), m: 1600, pace: (iv + tenK) / 2, ...R(150) }]; break;
+    case "i2000": sets = [{ reps: red(step(type, k)), m: 2000, pace: tenK, ...R(180) }]; break;
+    case "pyramid": {
       label = "Pyramide";
-      sets = (deload ? [400, 800, 400] : [400, 800, 1200, 800, 400]).map(m => ({ reps: 1, m, pace: iv, ...R(m >= 800 ? 120 : 90) }));
+      // Spitze wächst: 1200 → 1600 → 2000 m
+      const tops = [[400, 800, 1200, 800, 400], [400, 800, 1200, 1600, 1200, 800, 400], [400, 800, 1200, 1600, 2000, 1600, 1200, 800, 400]];
+      const seq = deload ? [400, 800, 400] : tops[Math.min(k, tops.length - 1)];
+      sets = seq.map(m => ({ reps: 1, m, pace: iv, ...R(m >= 800 ? 120 : 90) }));
       break;
+    }
     case "hills":
       label = "Bergintervalle"; zone = "rep"; wu = 3; cd = 2;
-      sets = [{ reps: red(10), sec: 75, pace: iv * 1.15, rest: 90, uphill: true }]; break;
-    case "threshold":
+      sets = [{ reps: red(step(type, k)), sec: 75, pace: iv * 1.15, rest: 90, uphill: true }]; break;
+    case "threshold": {
       label = "Schwelle"; zone = "threshold";
-      sets = deload ? [{ reps: 2, sec: 600, pace: th, rest: 120 }] : [{ reps: 3, sec: 600, pace: th, rest: 120 }]; break;
+      const prog = [[3, 480], [3, 600], [2, 900], [3, 720], [4, 600], [4, 720]][Math.min(k, 5)];
+      sets = [{ reps: deload ? 2 : prog[0], sec: deload ? 600 : prog[1], pace: th, rest: 120 }]; break;
+    }
+    case "tdl": {
+      label = "Tempodauerlauf"; zone = "threshold";
+      const km = deload ? 4 : Math.min(10, 5 + k);
+      sets = [{ reps: 1, m: km * 1000, pace: th }]; break;
+    }
+    case "tempo2": {
+      label = "Tempo"; zone = "threshold";
+      const km = deload ? 2 : Math.min(5, 3 + k);
+      sets = [{ reps: 2, m: km * 1000, pace: (th + tenK) / 2, rest: km >= 4 ? 180 : 150 }]; break;
+    }
   }
   return runQuality(label, sets, wu, cd, zone, z, type);
 }
@@ -339,7 +361,8 @@ export function generatePlan(cfg, settings, existing, history = {}) {
   const runs = Math.max(1, Math.min(7, Number(cfg.runsPerWeek) || 3));
   const cross = normCross(cfg);
   const excluded = new Set(rules.excludedIntervals || []);
-  let lastTypes = [], weekTypes = [], crossIdx = 0, typeIdx = 0;
+  let lastTypes = [], weekTypes = [], crossIdx = 0;
+  const typeCount = {}; // wie oft jeder Intervall-Typ schon geplant wurde (für die Steigerung)
   const blocks = (cfg.blocks || []).map(normBlock);
   // Steigerungsstufe je Woche: zählt wie der Laufumfang nur Aufbauwochen, Entlastung hält den Stand
   let lvl = 0;
@@ -361,9 +384,12 @@ export function generatePlan(cfg, settings, existing, history = {}) {
     if (weekTypes.length) cand = [...cand.filter(t => FAST.has(t) !== FAST.has(weekTypes[0])), ...cand];
     if (!cand.length) cand = pool.filter(t => !weekTypes.includes(t));
     if (!cand.length) cand = pool;
-    const t = cand[(typeIdx++) % cand.length];
+    // am seltensten genutzter Typ zuerst, damit alle angehakten Typen regelmäßig drankommen
+    const t = cand.map((x, n) => [x, n]).sort((a, b) => (typeCount[a[0]] || 0) - (typeCount[b[0]] || 0) || a[1] - b[1])[0][0];
     weekTypes.push(t);
-    return intervalSession(t, P, wk.deload, history.restSec || null);
+    const k = typeCount[t] || 0;
+    if (!wk.deload) typeCount[t] = k + 1;
+    return intervalSession(t, P, wk.deload, history.restSec || null, k);
   };
   // Menge eines Bausteins in dieser Woche: Start × (1 + Steigerung)^Stufe, Ausdauer in Entlastung/Tapering reduziert
   const blockAmount = (b, wk) => {
