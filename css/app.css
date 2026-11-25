@@ -240,3 +240,11 @@ button.sync{border:0;background:transparent;padding:6px 0;font:inherit;font-size
 #ns-l{min-width:160px}
 .block.b5{grid-template-columns:minmax(0,1fr) 48px 58px 66px 24px;gap:6px}
 .block.b5 select,.block.b5 input{padding:8px 6px;font-size:14px}
+.bcard{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--bg);display:flex;flex-direction:column;gap:8px}
+.bcard .x{border:0;background:transparent;color:var(--muted);font-size:18px;width:32px}
+.bamt{flex-wrap:nowrap}
+.bamt input{width:70px;padding:8px}
+.bamt select{width:auto;padding:8px}
+.daychips{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.daychips button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 0;font-size:13px;font-weight:700;color:var(--muted)}
+.daychips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}

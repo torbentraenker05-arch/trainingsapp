@@ -179,9 +179,23 @@ function easyRun(km, P, recovery) {
   return { sport: "run", isKey: false, hard: false, title: null, distanceKm: Math.round(km * 10) / 10, durationMin: Math.round(km * (zone[0] + zone[1]) / 2 / 60),
     note: `${recovery ? "Regeneration" : "Zone 2"} · ${fmtKm(km)} km @ ${fmtRange(zone)}/km`, target: { zone: recovery ? "recovery" : "easy", kind: recovery ? "recovery" : "easy" } };
 }
-function crossSession(sport, min, settings) {
+const KMH = { bike: 25, row: 12, skierg: 12, swim: 2.5, stepper: 6, other: 8 };
+function crossSession(sport, min, settings, km = null) {
   const hz = hrZones(settings.zones)[1];
+  if (km) {
+    const m = Math.round(km / (KMH[sport] || 8) * 60);
+    return { sport, isKey: false, hard: false, title: null, distanceKm: km, durationMin: m, note: `Zone 2 · ${fmtKm(km)} km (Puls ${hz.lo}–${hz.hi})`, target: { zone: "Z2", kind: "cross" } };
+  }
   return { sport, isKey: false, hard: false, title: null, durationMin: min, note: `Zone 2 · ${min} min (Puls ${hz.lo}–${hz.hi})`, target: { zone: "Z2", kind: "cross" } };
+}
+
+// Baustein vereinheitlichen (ältere Pläne: durationMin/perWeek/day)
+export function normBlock(b) {
+  const days = Array.isArray(b.days) ? b.days.map(Number).filter(d => d >= 1 && d <= 7) : b.day ? [Number(b.day)] : [];
+  const unit = b.unit || (b.sport === "run" ? "km" : "min");
+  return { sport: b.sport, focus: b.focus || null, kind: b.sport === "run" ? (b.kind || "easy") : null, unit,
+    amount: Number(b.amount ?? b.durationMin) || (unit === "km" ? 8 : 30), incPct: Number(b.incPct) || 0,
+    days: [...new Set(days)].sort(), perWeek: days.length ? days.length : Math.max(0, Number(b.perWeek) || 0) };
 }
 
 // ---------- Wochen-Brett: Einheiten auf Tage verteilen ----------
@@ -323,7 +337,50 @@ export function generatePlan(cfg, settings, existing, history = {}) {
   const runs = Math.max(1, Math.min(7, Number(cfg.runsPerWeek) || 3));
   const cross = normCross(cfg);
   const excluded = new Set(rules.excludedIntervals || []);
-  let lastTypes = [], crossIdx = 0, typeIdx = 0;
+  let lastTypes = [], weekTypes = [], crossIdx = 0, typeIdx = 0;
+  const blocks = (cfg.blocks || []).map(normBlock);
+  // Steigerungsstufe je Woche: zählt wie der Laufumfang nur Aufbauwochen, Entlastung hält den Stand
+  let lvl = 0;
+  weeks.forEach((w, i) => { if (i > 0 && !w.deload && !weeks[i - 1].deload && ["base", "build", "peak"].includes(w.phase)) lvl++; w.level = lvl; });
+
+  // Qualitäts-Lauf passend zur Phase; Intervall-Typen wechseln und wiederholen sich nicht in der Folgewoche
+  const quality = (wk, wi) => {
+    if (wk.phase === "race") return runQuality("Vorbelastung", [{ reps: 3, sec: 60, pace: P.rp || P.z.interval[0], rest: 90 }], 2, 1, "race", P.z, "opener", false);
+    if (wk.phase === "taper") return runQuality("Intervalle", [{ reps: 4, m: 400, pace: P.z.interval[0], rest: 90 }], 2, 1.5, "interval", P.z, "sharpen");
+    if (wk.phase === "recovery") return easyRun(6, P, true);
+    if (wk.phase === "peak" && race && !weekTypes.includes("racepace")) { weekTypes.push("racepace"); return raceSession(wi, P, D, wk.deload); }
+    let pool = (wk.phase === "base" && !race && wi >= 4 ? [...PHASE_TYPES.base, ...PHASE_TYPES.build] : PHASE_TYPES[wk.phase] || PHASE_TYPES.base).filter(t => !excluded.has(t));
+    if (!pool.length) pool = ["threshold"];
+    let cand = pool.filter(t => !lastTypes.includes(t) && !weekTypes.includes(t));
+    if (weekTypes.length) cand = [...cand.filter(t => FAST.has(t) !== FAST.has(weekTypes[0])), ...cand];
+    if (!cand.length) cand = pool.filter(t => !weekTypes.includes(t));
+    if (!cand.length) cand = pool;
+    const t = cand[(typeIdx++) % cand.length];
+    weekTypes.push(t);
+    return intervalSession(t, P, wk.deload, history.restSec || null);
+  };
+  // Menge eines Bausteins in dieser Woche: Start × (1 + Steigerung)^Stufe, Ausdauer in Entlastung/Tapering reduziert
+  const blockAmount = (b, wk) => {
+    let v = b.amount * Math.pow(1 + b.incPct / 100, wk.level);
+    if (ENDURANCE.has(b.sport) || b.sport === "run") {
+      if (wk.deload) v *= (Number(rules.deloadFactor) || 70) / 100;
+      v *= { taper: 0.75, race: 0.5, recovery: 0.6 }[wk.phase] || 1;
+    }
+    return b.unit === "km" ? Math.round(v * 2) / 2 : Math.max(5, Math.round(v));
+  };
+  const blockItem = (b, bi, amount, wk, wi, k) => {
+    const key = { blockKey: "b" + bi, fromBlock: true };
+    if (b.sport === "run") {
+      const km = b.unit === "km" ? amount : amount * 60 / easyMid(P.z);
+      if (b.kind === "intervals") return { ...quality(wk, wi), ...key };
+      if (b.kind === "long") return ["race", "recovery"].includes(wk.phase) ? null : { ...longRun(km, P, wk.phase, D), ...key };
+      return { ...easyRun(km, P, wk.phase === "recovery"), ...key };
+    }
+    if (ENDURANCE.has(b.sport) || CROSS_SPORTS.includes(b.sport)) return { ...crossSession(b.sport, b.unit === "km" ? null : amount, settings, b.unit === "km" ? amount : null), ...key };
+    const legs = b.sport === "plyo" || (b.sport === "gym" && (b.focus === "legs" || b.focus === "full"));
+    if (wk.phase === "race" && legs) return null;
+    return { sport: b.sport, focus: b.sport === "gym" ? b.focus : null, durationMin: amount, hard: legs, isKey: false, title: null, note: `${amount} min`, target: { kind: "block" }, ...key };
+  };
 
   weeks.forEach((wk, wi) => {
     const sun = ymd(addDays(parse(wk.monday), 6));
@@ -355,13 +412,27 @@ export function generatePlan(cfg, settings, existing, history = {}) {
       if (d) add(board.placeFixed({ sport: "run", title: "Wettkampf " + (RACES.find(r => r.km === D)?.label || D + " km"), distanceKm: D, durationMin: Math.round((parseTime(race.raceTime) || P.z.pace(D) * D) / 60), isKey: true, hard: true, note: race.raceTime ? "Zielzeit " + race.raceTime + " (" + fmtPace(P.rp) + "/km)" : "Wettkampf", target: { kind: "race" } }, d.dow));
     }
 
-    // 3. Läufe
+    // 3. Bausteine dieser Woche (feste Tage oder frei, Menge mit Steigerung pro Woche)
+    const blockItems = [];
+    blocks.forEach((b, bi) => {
+      const have = b.days.length ? 0 : mine.filter(w => w.sport === b.sport && (b.sport !== "gym" || w.focus === b.focus) && !w.planId).length;
+      const n = b.days.length || Math.max(0, b.perWeek - have);
+      const amount = blockAmount(b, wk);
+      for (let k = 0; k < n; k++) {
+        const it = blockItem(b, bi, amount, wk, wi, k);
+        if (it) blockItems.push([it, b.days[k] || null]);
+      }
+    });
+    const runBlocks = blockItems.filter(([it]) => it.sport === "run");
+
+    // 4. Automatische Läufe: nur so viele, wie neben den Lauf-Bausteinen noch fehlen
     const existingRuns = mine.filter(w => w.sport === "run").length;
-    let nRuns = Math.max(0, runs - existingRuns - (wk.phase === "race" ? 1 : 0));
-    const qCount = runs >= 4 ? 2 : runs >= 2 ? 1 : 0;
-    const hasLong = nRuns >= 1 && !["race", "recovery"].includes(wk.phase);
+    let nRuns = Math.max(0, runs - existingRuns - runBlocks.length - (wk.phase === "race" ? 1 : 0));
+    // Hast du Intervall-Tage als Baustein festgelegt, plant die Automatik keine weiteren harten Läufe
+    const qCount = blocks.some(b => b.sport === "run" && b.kind === "intervals") ? 0 : (runs >= 4 ? 2 : runs >= 2 ? 1 : 0);
+    const hasLong = nRuns >= 1 && !["race", "recovery"].includes(wk.phase) && !blocks.some(b => b.sport === "run" && b.kind === "long");
     const runItems = [];
-    let kmLeft = wk.km;
+    let kmLeft = wk.km - runBlocks.reduce((t, [it]) => t + (+it.distanceKm || 0), 0);
     if (hasLong) {
       const lrMax = (Number(cfg.longRunMaxMin) || 150) * 60 / P.z.easy[1];
       const lrKm = Math.max(6, Math.min(lrMax, wk.km * (runs <= 3 ? 0.36 : 0.3), D >= 42 ? 32 : D >= 21 ? 22 : 18));
@@ -369,46 +440,16 @@ export function generatePlan(cfg, settings, existing, history = {}) {
       kmLeft -= runItems[0].distanceKm; nRuns--;
     }
     const qSlots = wk.phase === "race" ? Math.min(1, nRuns) : wk.phase === "recovery" ? 0 : Math.min(qCount, nRuns);
-    const thisTypes = [];
-    for (let q = 0; q < qSlots; q++) {
-      let s;
-      if (wk.phase === "race") s = runQuality("Vorbelastung", [{ reps: 3, sec: 60, pace: P.rp || P.z.interval[0], rest: 90 }], 2, 1, "race", P.z, "opener", false);
-      else if (wk.phase === "taper") s = runQuality("Intervalle", [{ reps: 4, m: 400, pace: P.z.interval[0], rest: 90 }], 2, 1.5, "interval", P.z, "sharpen");
-      else if (wk.phase === "peak" && q === 0 && race) s = raceSession(wi, P, D, wk.deload);
-      else {
-        let pool = (wk.phase === "base" && !race && wi >= 4 ? [...PHASE_TYPES.base, ...PHASE_TYPES.build] : PHASE_TYPES[wk.phase] || PHASE_TYPES.base)
-          .filter(t => !excluded.has(t));
-        if (!pool.length) pool = ["threshold"];
-        // nicht wie letzte Woche, bei zwei Einheiten eine schnelle und eine längere
-        let cand = pool.filter(t => !lastTypes.includes(t) && !thisTypes.includes(t));
-        if (q === 1 && thisTypes.length) cand = [...cand.filter(t => FAST.has(t) !== FAST.has(thisTypes[0])), ...cand];
-        if (!cand.length) cand = pool.filter(t => !thisTypes.includes(t));
-        if (!cand.length) cand = pool;
-        const t = cand[(typeIdx++) % cand.length];
-        thisTypes.push(t);
-        s = intervalSession(t, P, wk.deload, history.restSec || null);
-      }
-      runItems.push(s); kmLeft -= s.distanceKm; nRuns--;
-    }
-    if (thisTypes.length) lastTypes = thisTypes;
+    for (let q = 0; q < qSlots; q++) { const s = quality(wk, wi); runItems.push(s); kmLeft -= s.distanceKm; nRuns--; }
     for (let i = 0; i < nRuns; i++) {
       const km = Math.max(4, Math.min(16, kmLeft / (nRuns - i)));
       const e = easyRun(km, P, wk.phase === "recovery");
       runItems.push(e); kmLeft -= e.distanceKm;
     }
+    if (weekTypes.length) lastTypes = weekTypes;
+    weekTypes = [];
 
-    // 4. Bausteine (Kraft, Plyo, Dehnen, eigene)
-    const blocks = [], fixedBlocks = [];
-    (cfg.blocks || []).forEach((b, bi) => {
-      const have = mine.filter(w => w.sport === b.sport && (b.sport !== "gym" || w.focus === b.focus)).length;
-      for (let i = have; i < (Number(b.perWeek) || 0); i++) {
-        const legs = b.sport === "plyo" || (b.sport === "gym" && (b.focus === "legs" || b.focus === "full"));
-        if (wk.phase === "race" && legs) continue;
-        const it = { sport: b.sport, focus: b.sport === "gym" ? b.focus : null, durationMin: Number(b.durationMin) || 45, hard: legs, isKey: false, title: null, note: `${Number(b.durationMin) || 45} min`, blockKey: "b" + bi, target: { kind: "block" } };
-        if (b.day && i === have) fixedBlocks.push([it, Number(b.day)]); else blocks.push(it);
-      }
-    });
-    // 5. Cross-Pool: Anzahl je nachdem, ob in dieser Woche Fußball ist
+    // 5. Cross-Pool (optional): Anzahl je nachdem, ob in dieser Woche Fußball ist
     const crossItems = [];
     const nCross = footballWeek ? cross.perWeekFootball : cross.perWeekNoFootball;
     for (let i = 0; i < nCross && cross.sports.length; i++) {
@@ -418,11 +459,13 @@ export function generatePlan(cfg, settings, existing, history = {}) {
       crossIdx++;
       crossItems.push(crossSession(sp, cross.durationMin, settings));
     }
+    const fixedBlocks = blockItems.filter(([, d]) => d);
+    const freeBlocks = blockItems.filter(([, d]) => !d).map(([it]) => it);
 
     // Belastungsgrenze: lockere Läufe und Cross-Einheiten kürzen
     const z = settings.zones;
     const est = l => l.reduce((s, w) => s + loadOf(w, z), 0);
-    const weekLoad = () => est([...placed, ...mine.filter(w => w.status === "planned"), ...runItems, ...blocks, ...fixedBlocks.map(f => f[0]), ...crossItems]);
+    const weekLoad = () => est([...placed, ...mine.filter(w => w.status === "planned"), ...runItems, ...blockItems.map(f => f[0]), ...crossItems]);
     if (prevLoad && !wk.deload && ["base", "build", "peak"].includes(wk.phase)) {
       const limit = prevLoad * (1 + (Number(rules.maxIncreasePct) || 10) / 100);
       let guard = 0;
@@ -434,17 +477,19 @@ export function generatePlan(cfg, settings, existing, history = {}) {
       }
     }
 
-    // 6. Verteilen: feste Bausteine → lang/Qualität → harte Kraft → übrige Kraft → lockere Läufe → Cross → Dehnen
+    // 6. Verteilen: Bausteine mit festem Tag → lang/Qualität → harte Kraft → übrige Kraft → lockere Läufe → Cross → Dehnen
     for (const [it, day] of fixedBlocks) add(board.placeOn(it, day));
+    const runsAll = [...runItems, ...freeBlocks.filter(b => b.sport === "run")];
+    const other = freeBlocks.filter(b => b.sport !== "run");
     const order = [
-      ...runItems.filter(r => r.target.kind === "long" && r.hard),
-      ...runItems.filter(r => r.target.kind === "quality"),
-      ...runItems.filter(r => r.target.kind === "long" && !r.hard),
-      ...blocks.filter(b => b.hard),
-      ...blocks.filter(b => !b.hard && b.sport !== "stretch"),
-      ...runItems.filter(r => r.target.kind === "easy" || r.target.kind === "recovery"),
-      ...crossItems,
-      ...blocks.filter(b => b.sport === "stretch"),
+      ...runsAll.filter(r => r.target.kind === "long" && r.hard),
+      ...runsAll.filter(r => r.target.kind === "quality"),
+      ...runsAll.filter(r => r.target.kind === "long" && !r.hard),
+      ...other.filter(b => b.hard),
+      ...other.filter(b => !b.hard && b.sport !== "stretch" && !isCross(b)),
+      ...runsAll.filter(r => r.target.kind === "easy" || r.target.kind === "recovery"),
+      ...other.filter(isCross), ...crossItems,
+      ...other.filter(b => b.sport === "stretch"),
     ];
     for (const it of order) {
       let w = board.place(it);

@@ -2,7 +2,7 @@
 import { $, $$, esc, ymd, parse, addDays, mondayOf, isoWeek, todayStr, fmtKm, shortDate, WD, WD_SHORT, newId, clone, toast, addDaysStr, num, parseTime, fmtPace } from "./util.js";
 import { store } from "./store.js";
 import { sportsOf, sportOf, FOCUS, learnedRest, paceZones, hrZones, fmtRange, ZONE_LABEL, loadOf, DEFAULT_RULES } from "./sports.js";
-import { generatePlan, PHASE_LABEL, RACES, CROSS_SPORTS, INTERVAL_TYPES, normCross } from "./planner.js";
+import { generatePlan, PHASE_LABEL, RACES, CROSS_SPORTS, INTERVAL_TYPES, normCross, normBlock } from "./planner.js";
 
 const st = { wizard: null }; // {step, cfg, preview}
 const STEPS = ["Ziel", "Termine", "Bausteine", "Zonen", "Vorschau"];
@@ -149,6 +149,7 @@ function startWizard(plan) {
   const cfg = plan ? { ...defaultCfg(), ...clone(plan.config), name: plan.name, start: plan.start, end: plan.end, planId: plan.id } : defaultCfg();
   delete cfg.weeks;
   cfg.cross = normCross(cfg);
+  cfg.blocks = (cfg.blocks || []).map(normBlock);
   delete cfg.windows; delete cfg.endurance;
   st.wizard = { step: 0, cfg, editing: !!plan };
   renderWizard();
@@ -205,7 +206,7 @@ function stepGoal(c) {
       <div class="field"><label for="g-km">Aktuell km/Woche</label><input type="number" id="g-km" min="0" value="${esc(c.startKm)}"></div>
       <div class="field"><label for="g-long">Langer Lauf max. (min)</label><input type="number" id="g-long" min="30" value="${esc(c.longRunMaxMin)}"></div>
     </div>
-    <p class="hint">„Aktuell km/Woche“ ist mit deinem Schnitt der letzten 4 Wochen vorbelegt. Von dort steigert der Plan höchstens um ${store.settings.rules.maxIncreasePct} % pro Woche.</p>`;
+    <p class="hint">Lauf-Bausteine (z. B. Langer Lauf am Sonntag) zählen bei „Läufe pro Woche“ mit; die App plant nur die restlichen Läufe selbst. „Aktuell km/Woche“ ist mit deinem Schnitt der letzten 4 Wochen vorbelegt. Von dort steigert der Plan höchstens um ${store.settings.rules.maxIncreasePct} % pro Woche.</p>`;
 }
 function bindGoal(c) {
   const f = $("#wz");
@@ -237,43 +238,76 @@ function bindFixed(c) {
   $("#addFixed").onclick = () => { c.fixed.push({ weekday: 2, sport: "football", durationMin: 90, title: "", match: false }); renderWizard(); };
 }
 
-function blockLabel(b) { return b.sport === "gym" ? "gym:" + b.focus : b.sport; }
+// Baustein-Art als ein Wert für die Auswahlliste: "run:long", "gym:push", "stepper" …
+function blockLabel(b) { return b.sport === "run" ? "run:" + (b.kind || "easy") : b.sport === "gym" ? "gym:" + b.focus : b.sport; }
+const BLOCK_KINDS = () => [
+  ["Laufen", [["run:long", "Langer Lauf"], ["run:intervals", "Intervalle"], ["run:easy", "Zone-2-Lauf"]]],
+  ["Cross (Zone 2)", CROSS_SPORTS.map(k => [k, sportsOf(store.settings)[k].label])],
+  ["Kraft & Co.", [...Object.entries(FOCUS).map(([k, l]) => ["gym:" + k, "Kraft · " + l]), ["plyo", "Plyo"], ["stretch", "Dehnen"]]],
+  ...(Object.keys(store.settings.sports || {}).length ? [["Eigene", Object.entries(store.settings.sports).map(([k, x]) => [k, x.label])]] : []),
+];
 function stepBlocks(c) {
-  const bOpts = sel => [...Object.entries(FOCUS).map(([k, l]) => ["gym:" + k, l]), ["plyo", "Plyo"], ["stretch", "Dehnen"],
-    ...Object.entries(sportsOf(store.settings)).filter(([k]) => !BASE_KEYS.has(k)).map(([k, s]) => [k, s.label])].map(([v, l]) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(l)}</option>`).join("");
-  const dayOpts = sel => `<option value="">frei</option>` + WD_SHORT.map((d, i) => `<option value="${i + 1}"${+sel === i + 1 ? " selected" : ""}>${d}</option>`).join("");
+  const opts = sel => BLOCK_KINDS().map(([g, l]) => `<optgroup label="${esc(g)}">${l.map(([v, t]) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(t)}</option>`).join("")}</optgroup>`).join("");
   const S = sportsOf(store.settings), x = c.cross;
-  return `<h3 style="margin:0">Kraft, Plyo und Dehnen</h3>
-  <p class="hint">Stehen nur als Einheit im Kalender, ohne Übungen. Mit <b>Tag</b> legst du einen Baustein fest (z. B. Push am Montag), „frei“ lässt den Algorithmus entscheiden. Dieselbe Einheit kommt nie zweimal an einem Tag; zwei verschiedene Dehn-Bausteine höchstens einmal pro Woche am selben Tag.</p>
-  <div class="blocks"><div class="block b5 hint"><span>Baustein</span><span>× Wo.</span><span>Min.</span><span>Tag</span><span></span></div>
-  ${c.blocks.map((b, i) => `<div class="block b5"><select class="in" data-b="${i}" data-f="kind" aria-label="Baustein">${bOpts(blockLabel(b))}</select><input type="number" data-b="${i}" data-f="perWeek" value="${b.perWeek}" min="0" max="7" aria-label="pro Woche"><input type="number" data-b="${i}" data-f="durationMin" value="${b.durationMin}" min="5" step="5" aria-label="Minuten"><select class="in" data-b="${i}" data-f="day" aria-label="Tag">${dayOpts(b.day)}</select><button type="button" class="x" data-delb="${i}" aria-label="Entfernen">✕</button></div>`).join("")}</div>
+  const card = (b, i) => {
+    const iv = b.sport === "run" && b.kind === "intervals";
+    return `<div class="bcard">
+      <div class="row"><select class="in grow" data-b="${i}" data-f="kind" aria-label="Baustein">${opts(blockLabel(b))}</select><button type="button" class="x" data-delb="${i}" aria-label="Baustein entfernen">✕</button></div>
+      ${iv ? `<p class="hint" style="margin:0">Inhalt wechselt automatisch je Phase (400 m bis 2 km, Pyramide, Schwelle …). Typen abwählen unter <b>Regeln</b>.</p>` : `<div class="row bamt">
+        <input type="number" data-b="${i}" data-f="amount" value="${b.amount}" min="1" step="${b.unit === "km" ? 0.5 : 5}" aria-label="Menge">
+        <select class="in" data-b="${i}" data-f="unit" aria-label="Einheit"><option value="km"${b.unit === "km" ? " selected" : ""}>km</option><option value="min"${b.unit === "min" ? " selected" : ""}>min</option></select>
+        <span class="hint">+</span><input type="number" data-b="${i}" data-f="incPct" value="${b.incPct}" min="0" max="50" step="1" aria-label="Steigerung pro Woche in Prozent"><span class="hint">% pro Woche</span></div>`}
+      <div class="daychips">${WD_SHORT.map((d, k) => `<button type="button" data-day="${i}:${k + 1}" aria-pressed="${b.days.includes(k + 1)}">${d}</button>`).join("")}</div>
+      ${b.days.length ? "" : `<div class="row hint">Tage frei – <input type="number" data-b="${i}" data-f="perWeek" value="${b.perWeek}" min="0" max="7" style="width:64px" aria-label="Anzahl pro Woche"> × pro Woche, der Plan wählt die Tage</div>`}
+    </div>`;
+  };
+  return `<h3 style="margin:0">Bausteine</h3>
+  <p class="hint">Alles, was du fest einplanen willst: Langer Lauf, Intervall- und Zone-2-Tage, Cross-Einheiten, Kraft, Dehnen. Tippe die Tage an oder lass sie frei. <b>Steigerung</b> wirkt jede Woche auf den Vorwochenwert (z. B. 18 km +10 % → 19,8 km), jede ${store.settings.rules.deloadEvery}. Woche ist Entlastung. Lauf-Bausteine ersetzen die passenden automatischen Läufe.</p>
+  <div class="stack">${c.blocks.map(card).join("")}</div>
   <button type="button" class="btn secondary" id="addBlock">+ Baustein</button>
-  <h3 style="margin:8px 0 0">Cross-Einheiten</h3>
-  <p class="hint">Ausdauer außer Laufen, immer Zone 2 und eine Sportart pro Einheit. Der Plan wechselt die angehakten Sportarten ab, höchstens 2 verschiedene pro Tag.</p>
+  <details${x.perWeekFootball || x.perWeekNoFootball ? " open" : ""}><summary class="hint" style="cursor:pointer;margin-top:8px"><b>Cross-Pool</b> (optional): flexible Cross-Einheiten, der Plan wählt Tag und Sportart</summary>
+  <div class="stack" style="margin-top:8px">
   <div class="sports">${CROSS_SPORTS.map(k => `<label style="--c:${S[k].c}"><input type="checkbox" data-cx="${k}"${x.sports.includes(k) ? " checked" : ""}><i></i>${esc(S[k].label)}</label>`).join("")}</div>
   <div class="row3">
     <div class="field"><label for="cx-f">pro Woche mit Fußball</label><input type="number" id="cx-f" min="0" max="10" value="${x.perWeekFootball}"></div>
     <div class="field"><label for="cx-n">pro Woche ohne Fußball</label><input type="number" id="cx-n" min="0" max="10" value="${x.perWeekNoFootball}"></div>
     <div class="field"><label for="cx-d">Minuten</label><input type="number" id="cx-d" min="10" step="5" value="${x.durationMin}"></div>
-  </div>`;
+  </div></div></details>`;
 }
-const BASE_KEYS = new Set(["run", "football", "bike", "swim", "row", "skierg", "stepper", "plyo", "gym", "stretch", "other"]);
 function bindBlocks(c) {
   const f = $("#wz");
   f.oninput = e => {
     const el = e.target;
-    if (el.dataset.b != null) { const b = c.blocks[+el.dataset.b];
-      if (el.dataset.f === "kind") { const [s, fo] = el.value.split(":"); b.sport = s; b.focus = fo || null; }
-      else if (el.dataset.f === "day") b.day = el.value ? +el.value : null;
-      else b[el.dataset.f] = num(el.value) || 0; }
+    if (el.dataset.b != null) {
+      const b = c.blocks[+el.dataset.b];
+      if (el.dataset.f === "kind") {
+        const [sp, sub] = el.value.split(":");
+        const wasRun = b.sport === "run";
+        b.sport = sp; b.focus = sp === "gym" ? sub : null; b.kind = sp === "run" ? sub : null;
+        if (sp === "run" && !wasRun) { b.unit = "km"; b.amount = sub === "long" ? 15 : 8; }
+        if (sp !== "run" && wasRun) { b.unit = "min"; b.amount = sp === "gym" ? 60 : 30; }
+        renderWizard(); return;
+      }
+      if (el.dataset.f === "unit") b.unit = el.value;
+      else b[el.dataset.f] = Math.max(0, num(el.value) || 0);
+    }
     if (el.dataset.cx) c.cross.sports = $$("[data-cx]").filter(x => x.checked).map(x => x.dataset.cx);
     if (el.id === "cx-f") c.cross.perWeekFootball = Math.max(0, num(el.value) || 0);
     if (el.id === "cx-n") c.cross.perWeekNoFootball = Math.max(0, num(el.value) || 0);
     if (el.id === "cx-d") c.cross.durationMin = Math.max(10, num(el.value) || 30);
   };
   f.onchange = f.oninput;
-  f.onclick = e => { const b = e.target.closest("[data-delb]"); if (b) { c.blocks.splice(+b.dataset.delb, 1); renderWizard(); } };
-  $("#addBlock").onclick = () => { c.blocks.push({ sport: "gym", focus: "full", durationMin: 45, perWeek: 1, day: null }); renderWizard(); };
+  f.onclick = e => {
+    const del = e.target.closest("[data-delb]"); if (del) { c.blocks.splice(+del.dataset.delb, 1); renderWizard(); return; }
+    const day = e.target.closest("[data-day]");
+    if (day) {
+      const [bi, d] = day.dataset.day.split(":").map(Number), b = c.blocks[bi];
+      b.days = b.days.includes(d) ? b.days.filter(x => x !== d) : [...b.days, d].sort();
+      b.perWeek = b.days.length || b.perWeek || 1;
+      renderWizard();
+    }
+  };
+  $("#addBlock").onclick = () => { c.blocks.push(normBlock({ sport: "stepper", unit: "min", amount: 20, incPct: 0, days: [], perWeek: 1 })); renderWizard(); };
 }
 
 function stepZones(c) {
