@@ -173,7 +173,7 @@ export function entryHTML(w, showDate, pos) {
     w.source === "garmin" ? `<span class="chip">Garmin</span>` : "",
     w.seriesId ? `<span class="chip">Serie</span>` : "",
   ].join("");
-  return `<div class="entry${plan ? " plan" : ""}" style="--c:${s.c}"><button class="entry-main" data-edit="${esc(w.id)}"><span class="sw"></span><span class="t">${name}${sub}${chips}</span><span class="date">${showDate ? dt.getDate() + "." + (dt.getMonth() + 1) + "." : pos ? `<span class="slotlbl">${pos}.</span>` : ""}</span>${bits.length ? `<span class="m">${bits.join(" · ")}</span>` : ""}${w.note ? `<span class="n">${esc(w.note)}</span>` : ""}</button>${check}</div>`;
+  return `<div class="entry${plan ? " plan" : ""}" style="--c:${s.c}"><button class="entry-main" data-edit="${esc(w.id)}"><span class="sw"></span><span class="t">${name}${sub}${chips}</span><span class="date">${showDate ? dt.getDate() + "." + (dt.getMonth() + 1) + "." : pos ? `<span class="slotlbl">${pos}.</span>` : ""}</span>${bits.length ? `<span class="m">${bits.join(" · ")}</span>` : ""}${w.note ? `<span class="n">${!plan && w.planId ? "<b>Geplant:</b> " : ""}${esc(w.note)}</span>` : ""}</button>${check}</div>`;
 }
 function renderDay() {
   const s = ui.sel, t = todayStr();

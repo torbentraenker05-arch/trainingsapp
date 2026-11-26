@@ -211,6 +211,13 @@ function crossSession(sport, min, settings, km = null) {
   return { sport, isKey: false, hard: false, title: null, durationMin: min, note: `Zone 2 · ${min} min (Puls ${hz.lo}–${hz.hi})`, target: { zone: "Z2", kind: "cross" } };
 }
 
+// Ist die vorhandene Einheit w dieselbe Art wie Baustein b? (Cross untereinander, Kraft mit gleichem Fokus oder ohne Fokus)
+function sameKind(w, b) {
+  if (CROSS_SPORTS.includes(b.sport)) return CROSS_SPORTS.includes(w.sport);
+  if (w.sport !== b.sport) return false;
+  return b.sport !== "gym" || !w.focus || w.focus === b.focus;
+}
+
 // Baustein vereinheitlichen (ältere Pläne: durationMin/perWeek/day)
 export function normBlock(b) {
   const days = Array.isArray(b.days) ? b.days.map(Number).filter(d => d >= 1 && d <= 7) : b.day ? [Number(b.day)] : [];
@@ -451,8 +458,11 @@ export function generatePlan(cfg, settings, existing, history = {}) {
       const n = b.days.length || Math.max(0, b.perWeek - have);
       const amount = blockAmount(b, wk);
       for (let k = 0; k < n; k++) {
+        const day = b.days[k] || null;
+        // Fester Tag: an dem schon eine passende Einheit erledigt oder fixiert ist → nicht noch einmal planen
+        if (day && mine.some(w => w.date === board.days[day - 1].date && sameKind(w, b))) continue;
         const it = blockItem(b, bi, amount, wk, wi, k);
-        if (it) blockItems.push([it, b.days[k] || null]);
+        if (it) blockItems.push([it, day]);
       }
     });
     const runBlocks = blockItems.filter(([it]) => it.sport === "run");
