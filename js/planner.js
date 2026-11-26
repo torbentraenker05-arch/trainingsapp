@@ -188,13 +188,28 @@ function raceSession(k, P, D, deload) {
   const o = opts[k % opts.length];
   return runQuality("Wettkampftempo", [{ reps: red(o[0]), m: o[1], pace: rp || th, rest: D >= 21 ? 120 : 90 }], 2, 1.5, "race", z, "racepace");
 }
-function longRun(km, P, phase, D) {
+// k: der wievielte lange Lauf im Plan (für die Abwechslung); in Entlastung/Tapering immer ruhig in Zone 2
+// Wechsel: Zone 2 → progressiv (letztes Viertel Marathontempo) → Zone 2 → Endbeschleunigung (letzte 2–3 km Schwelle)
+function longRun(km, P, phase, D, k = 0, calm = false) {
   const { z, rp } = P;
-  const min = Math.round(km * z.easy[1] / 60);
-  const out = { sport: "run", isKey: true, hard: min >= 90, title: null, distanceKm: Math.round(km), durationMin: min, target: { zone: "easy", kind: "long" } };
-  out.note = `Langer Lauf · ${Math.round(km)} km Zone 2 @ ${fmtRange(z.easy)}/km`;
-  if (phase === "peak" && D >= 21 && rp) out.note += ` · die letzten ${Math.round(km * 0.25)} km @ ${fmtPace(rp)}/km (Wettkampftempo)`;
-  return out;
+  const total = Math.round(km);
+  const base = { sport: "run", isKey: true, title: null, distanceKm: total, target: { zone: "easy", kind: "long" } };
+  const easyMin = t => t * z.easy[1] / 60;
+  if (phase === "peak" && D >= 21 && rp && !calm) {
+    const fast = Math.round(km * 0.25);
+    return { ...base, hard: true, durationMin: Math.round(easyMin(total - fast) + fast * rp / 60), note: `Langer Lauf mit Wettkampftempo · ${total} km: ${total - fast} km Zone 2 @ ${fmtRange(z.easy)}/km, dann ${fast} km @ ${fmtPace(rp)}/km` };
+  }
+  const variant = calm || total < 10 ? 0 : k % 4;
+  if (variant === 1) {
+    const fast = Math.max(2, Math.round(km * 0.25)), mp = z.marathon[0];
+    return { ...base, hard: true, durationMin: Math.round(easyMin(total - fast) + fast * mp / 60), note: `Progressiver langer Lauf · ${total} km: ${total - fast} km Zone 2 @ ${fmtRange(z.easy)}/km, die letzten ${fast} km @ ${fmtPace(mp)}/km (Marathontempo)` };
+  }
+  if (variant === 3) {
+    const fast = total >= 16 ? 3 : 2, th = z.threshold[0];
+    return { ...base, hard: true, durationMin: Math.round(easyMin(total - fast) + fast * th / 60), note: `Langer Lauf mit Endbeschleunigung · ${total} km: ${total - fast} km Zone 2 @ ${fmtRange(z.easy)}/km, die letzten ${fast} km @ ${fmtPace(th)}/km (Schwelle)` };
+  }
+  const min = Math.round(easyMin(total));
+  return { ...base, hard: min >= 90, durationMin: min, note: `Langer Lauf · ${total} km Zone 2 @ ${fmtRange(z.easy)}/km` };
 }
 function easyRun(km, P, recovery) {
   const { z } = P, zone = recovery ? z.recovery : z.easy;
@@ -370,6 +385,7 @@ export function generatePlan(cfg, settings, existing, history = {}) {
   const excluded = new Set(rules.excludedIntervals || []);
   let lastTypes = [], weekTypes = [], crossIdx = 0;
   const typeCount = {}; // wie oft jeder Intervall-Typ schon geplant wurde (für die Steigerung)
+  let longCount = 0;    // wie viele lange Läufe schon geplant wurden (für die Abwechslung)
   const blocks = (cfg.blocks || []).map(normBlock);
   // Steigerungsstufe je Woche: zählt wie der Laufumfang nur Aufbauwochen, Entlastung hält den Stand
   let lvl = 0;
@@ -412,7 +428,7 @@ export function generatePlan(cfg, settings, existing, history = {}) {
     if (b.sport === "run") {
       const km = b.unit === "km" ? amount : amount * 60 / easyMid(P.z);
       if (b.kind === "intervals") return { ...quality(wk, wi, b.types), ...key };
-      if (b.kind === "long") return ["race", "recovery"].includes(wk.phase) ? null : { ...longRun(km, P, wk.phase, D), ...key };
+      if (b.kind === "long") return ["race", "recovery"].includes(wk.phase) ? null : { ...longRun(km, P, wk.phase, D, wk.deload || wk.phase === "taper" ? 0 : longCount++, wk.deload || wk.phase === "taper"), ...key };
       return { ...easyRun(km, P, wk.phase === "recovery"), ...key };
     }
     if (ENDURANCE.has(b.sport) || CROSS_SPORTS.includes(b.sport)) return { ...crossSession(b.sport, b.unit === "km" ? null : amount, settings, b.unit === "km" ? amount : null), ...key };
@@ -478,7 +494,7 @@ export function generatePlan(cfg, settings, existing, history = {}) {
     if (hasLong) {
       const lrMax = (Number(cfg.longRunMaxMin) || 150) * 60 / P.z.easy[1];
       const lrKm = Math.max(6, Math.min(lrMax, wk.km * (runs <= 3 ? 0.36 : 0.3), D >= 42 ? 32 : D >= 21 ? 22 : 18));
-      runItems.push(longRun(wk.phase === "taper" ? lrKm * 0.7 : lrKm, P, wk.phase, D));
+      runItems.push(longRun(wk.phase === "taper" ? lrKm * 0.7 : lrKm, P, wk.phase, D, wk.deload || wk.phase === "taper" ? 0 : longCount++, wk.deload || wk.phase === "taper"));
       kmLeft -= runItems[0].distanceKm; nRuns--;
     }
     const qSlots = wk.phase === "race" ? Math.min(1, nRuns) : wk.phase === "recovery" ? 0 : Math.min(qCount, nRuns);
