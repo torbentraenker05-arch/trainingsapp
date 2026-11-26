@@ -14,9 +14,15 @@ const W_COLS = { id: "id", date: "date", slot: "slot", sport: "sport", focus: "f
 const P_COLS = { id: "id", name: "name", start: "start_date", end: "end_date", config: "config", active: "active", deleted: "deleted", createdAt: "created_at", updatedAt: "updated_at" };
 const NUMERIC = new Set(["distanceKm", "durationMin", "elevM", "trimp"]);
 
-function toDb(row, cols) {
+const W_DEFAULTS = { status: "done", isKey: false, hard: false, locked: false, deleted: false, source: "manual" };
+const P_DEFAULTS = { active: true, deleted: false, config: {} };
+function toDb(row, cols, defaults = {}) {
   const o = {};
-  for (const [k, c] of Object.entries(cols)) if (k !== "updatedAt" && k !== "createdAt" && row[k] !== undefined) o[c] = row[k];
+  for (const [k, c] of Object.entries(cols)) {
+    if (k === "updatedAt" || k === "createdAt") continue;
+    const v = row[k] ?? defaults[k];
+    o[c] = v === undefined ? null : v;
+  }
   return o;
 }
 function fromDb(row, cols) {
@@ -102,7 +108,7 @@ export const store = {
     if (!navigator.onLine) { this.online = false; this.emit(); return; }
     this.syncing = true; this.emit();
     try {
-      await this.push();
+      try { await this.push(); } catch (e) { console.warn("push", e); }
       await this.pull();
       this.online = true;
     } catch (e) {
@@ -115,16 +121,41 @@ export const store = {
   async push() {
     const entries = Object.entries(this.outbox);
     if (!entries.length) return;
-    const ws = entries.filter(([k]) => k.startsWith("w:")).map(([, r]) => toDb(r, W_COLS));
-    const ps = entries.filter(([k]) => k.startsWith("p:")).map(([, r]) => toDb(r, P_COLS));
     const sentinel = { ...this.outbox };
-    if (ps.length) { const { error } = await sb.from("plans").upsert(ps); if (error) throw error; }
-    for (let i = 0; i < ws.length; i += 300) {
-      const { error } = await sb.from("workouts").upsert(ws.slice(i, i + 300)); if (error) throw error;
+    const done = k => { if (this.outbox[k] === sentinel[k]) delete this.outbox[k]; };
+    // Einzeln nachsenden, wenn ein Sammelauftrag scheitert; was die Datenbank ablehnt, wird verworfen
+    // (der Stand vom Server kommt beim Abholen zurück), damit ein einzelner Eintrag nie den Abgleich blockiert
+    const send = async (table, items) => {
+      for (let i = 0; i < items.length; i += 300) {
+        const chunk = items.slice(i, i + 300);
+        const { error } = await sb.from(table).upsert(chunk.map(x => x.row));
+        if (!error) { chunk.forEach(x => done(x.key)); continue; }
+        for (const x of chunk) {
+          const { error: e1 } = await sb.from(table).upsert(x.row);
+          if (e1) console.warn("verworfen", table, x.row.id, e1.message);
+          done(x.key);
+        }
+      }
+    };
+    const ps = entries.filter(([k]) => k.startsWith("p:")).map(([key, r]) => ({ key, row: toDb(r, P_COLS, P_DEFAULTS) }));
+    let ws = entries.filter(([k]) => k.startsWith("w:")).map(([key, r]) => ({ key, row: toDb(r, W_COLS, W_DEFAULTS) }));
+    // Von Garmin abgehakte Einheiten gewinnen gegen ältere lokale Stände (z. B. noch „geplant“ auf dem Gerät)
+    if (ws.length) {
+      const server = new Map();
+      for (let i = 0; i < ws.length; i += 200) {
+        const { data } = await sb.from("workouts").select("id,garmin_id,deleted").in("id", ws.slice(i, i + 200).map(x => x.row.id));
+        (data || []).forEach(r => server.set(r.id, r));
+      }
+      ws = ws.filter(x => {
+        const sv = server.get(x.row.id);
+        const stale = sv && ((sv.garmin_id && sv.garmin_id !== x.row.garmin_id) || (sv.deleted && x.row.garmin_id));
+        if (stale) done(x.key);
+        return !stale;
+      });
     }
-    if (this.outbox.s) { const { error } = await sb.from("settings").upsert({ user_id: this.uid, data: this.outbox.s }); if (error) throw error; }
-    // Nur entfernen, was seit dem Senden nicht erneut geändert wurde
-    for (const [k, v] of Object.entries(sentinel)) if (this.outbox[k] === v) delete this.outbox[k];
+    if (ps.length) await send("plans", ps);
+    if (ws.length) await send("workouts", ws);
+    if (this.outbox.s) { const { error } = await sb.from("settings").upsert({ user_id: this.uid, data: this.outbox.s }); if (!error) done("s"); }
   },
   async pull() {
     const since = this.lastPull ? new Date(new Date(this.lastPull).getTime() - 5000).toISOString() : "1970-01-01T00:00:00Z";
