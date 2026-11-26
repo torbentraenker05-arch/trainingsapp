@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
         const key = String(body.api_key || "").trim();
         if (key.length < 16) return json({ error: "Bitte den kompletten Schlüssel einfügen" }, 400);
         const t = await exchangeKey(key); // prüft den Schlüssel sofort
-        const { error } = await db.from("garmin_keys").upsert({ user_id: userId, api_key: key, access_token: t.token, token_expires_at: t.exp, last_sync: null, last_error: null });
+        const { error } = await db.from("garmin_keys").upsert({ user_id: userId, api_key: key, access_token: t.token, token_expires_at: t.exp, last_sync: null, last_error: null, key_set_at: new Date().toISOString() });
         if (error) throw error;
         return json({ ok: true, ...(await syncGarmin(db, userId, Number(body.days) || 120)) });
       }

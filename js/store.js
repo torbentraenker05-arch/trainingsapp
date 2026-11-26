@@ -146,7 +146,7 @@ export const store = {
       const { data: s } = await sb.from("settings").select("data").eq("user_id", this.uid).maybeSingle();
       if (s) this.settings = mergeSettings(s.data);
     }
-    const { data: gk } = await sb.from("garmin_keys").select("last_sync,last_error,created_at").eq("user_id", this.uid).maybeSingle();
+    const { data: gk } = await sb.from("garmin_keys").select("last_sync,last_error,created_at,key_set_at").eq("user_id", this.uid).maybeSingle();
     this.garmin = gk || null;
     this.lastPull = maxTs;
   },

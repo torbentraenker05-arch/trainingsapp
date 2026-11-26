@@ -107,6 +107,24 @@ async function analyzeRecent(db: SupabaseClient, userId: string, thr: number) {
 
 function newId() { return crypto.randomUUID().replace(/-/g, "").slice(0, 20); }
 
+const CROSS = ["bike", "row", "stepper", "skierg", "swim"];
+const shift = (date: string, n: number) => { const d = new Date(date + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+
+// Passende offene geplante Einheit suchen – von streng nach locker:
+// 1. gleicher Tag, gleiche Sportart  2. gleicher Tag, gleiche Gruppe (Cross untereinander, Kraft egal welcher Fokus)
+// 3. gleiche Sportart gestern (nachgeholt)  4. gleiche Sportart morgen (vorgezogen)
+async function findPlanned(db: SupabaseClient, userId: string, date: string, sport: string) {
+  const open = async (dates: string[], sports: string[]) => {
+    const { data } = await db.from("workouts").select("id,date,sport")
+      .eq("user_id", userId).in("date", dates).in("sport", sports).eq("status", "planned").eq("deleted", false)
+      .order("slot", { ascending: true, nullsFirst: false });
+    return (data || [])[0] || null;
+  };
+  const group = CROSS.includes(sport) ? CROSS : [sport];
+  return (await open([date], [sport])) || (group.length > 1 ? await open([date], group) : null)
+    || (["run", "gym", "plyo", "football"].includes(sport) || CROSS.includes(sport) ? (await open([shift(date, -1)], [sport])) || (await open([shift(date, 1)], [sport])) : null);
+}
+
 type Cfg = { map: Record<string, string>; hrRest: number; hrMax: number; recoveryHr: number };
 async function settingsOf(db: SupabaseClient, userId: string): Promise<Cfg> {
   const { data } = await db.from("settings").select("data").eq("user_id", userId).maybeSingle();
@@ -145,16 +163,34 @@ export async function importGarmin(db: SupabaseClient, userId: string, a: any, c
   const dup = (same || []).find((w: any) => Math.abs((Number(w.duration_min) || 0) - dur) <= 3);
   if (dup) { await db.from("workouts").update(data).eq("id", dup.id); return "linked"; }
 
-  const { data: planned } = await db.from("workouts").select("id")
-    .eq("user_id", userId).eq("date", date).eq("sport", sport).eq("status", "planned").eq("deleted", false)
-    .order("slot", { ascending: true, nullsFirst: false }).limit(1);
-  if (planned && planned.length) { await db.from("workouts").update(data).eq("id", planned[0].id); return "matched"; }
+  const planned = await findPlanned(db, userId, date, sport);
+  if (planned) { await db.from("workouts").update(data).eq("id", planned.id); return "matched"; }
 
   await db.from("workouts").insert({ id: newId(), user_id: userId, title: a.activityName ? String(a.activityName).slice(0, 120) : null, ...data });
   return "created";
 }
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
+
+// Bereits importierte, ungeplante Garmin-Einheiten der letzten 14 Tage nachträglich geplanten zuordnen
+async function rematch(db: SupabaseClient, userId: string) {
+  const since = ymd(new Date(Date.now() - 14 * 864e5));
+  const { data: list } = await db.from("workouts").select("*")
+    .eq("user_id", userId).eq("source", "garmin").eq("status", "done").eq("deleted", false).is("plan_id", null).gte("date", since);
+  let n = 0;
+  for (const w of list || []) {
+    const p = await findPlanned(db, userId, w.date, w.sport);
+    if (!p) continue;
+    const keep = ["date", "sport", "status", "distance_km", "duration_min", "avg_hr", "max_hr", "elev_m", "trimp", "garmin_id", "source", "locked", "recovery", "fit_checked"];
+    const data: Record<string, unknown> = {};
+    for (const k of keep) data[k] = w[k];
+    // erst die Kopie lösen (garmin_id ist eindeutig), dann die geplante Einheit abhaken
+    await db.from("workouts").update({ deleted: true, garmin_id: null }).eq("id", w.id);
+    await db.from("workouts").update(data).eq("id", p.id);
+    n++;
+  }
+  return n;
+}
 
 // Holt Aktivitäten seit dem letzten Abgleich (beim ersten Mal: die letzten `days` Tage)
 export async function syncGarmin(db: SupabaseClient, userId: string, days = 120) {
@@ -163,13 +199,14 @@ export async function syncGarmin(db: SupabaseClient, userId: string, days = 120)
   const from = k.last_sync ? new Date(new Date(k.last_sync).getTime() - 3 * 864e5) : new Date(Date.now() - days * 864e5);
   const to = new Date(Date.now() + 864e5);
   const cfg = await settingsOf(db, userId);
-  const stats: Record<string, number> = { created: 0, matched: 0, linked: 0, updated: 0, skipped: 0, analyzed: 0 };
+  const stats: Record<string, number> = { created: 0, matched: 0, linked: 0, updated: 0, skipped: 0, analyzed: 0, rematched: 0 };
   try {
     for (let page = 0; page < 20; page++) {
       const list = (await garminGet(db, userId, "/activitylist-service/activities/search/activities", { start: page * 100, limit: 100, startDate: ymd(from), endDate: ymd(to) })) ?? [];
       for (const a of list) stats[await importGarmin(db, userId, a, cfg)]++;
       if (list.length < 100) break;
     }
+    stats.rematched = await rematch(db, userId);
     stats.analyzed = await analyzeRecent(db, userId, cfg.recoveryHr);
     await db.from("garmin_keys").update({ last_sync: new Date().toISOString(), last_error: null }).eq("user_id", userId);
   } catch (e) {

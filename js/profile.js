@@ -91,14 +91,15 @@ function renderGarmin() {
       <p class="hint" style="margin:0">Der Schlüssel wird nur auf dem Server gespeichert und nie wieder an die App geschickt. Bereits per CSV importierte Einheiten werden erkannt und nicht doppelt angelegt.</p>`;
   } else {
     const last = g.last_sync ? new Date(g.last_sync).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "noch nie";
-    h += `<p class="hint">Letzter Abgleich: ${esc(last)}. Die App gleicht automatisch ab, sobald du sie öffnest (höchstens alle 30 Minuten).</p>
+    const keyAt = new Date(g.key_set_at || g.created_at).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+    h += `<p class="hint">Schlüssel eingetragen: ${esc(keyAt)} · Letzter Abgleich: ${esc(last)}. Die App gleicht automatisch ab, sobald du sie öffnest (höchstens alle 30 Minuten).</p>
       ${g.last_error ? `<div class="warn">${esc(g.last_error)}</div>` : ""}
       <div class="row"><button class="btn" id="g-sync">Jetzt abgleichen</button><button class="btn secondary small" id="g-new">Neuen Schlüssel eintragen</button><button class="btn danger small" id="g-off">Trennen</button></div>
       <p class="hint" id="g-msg"></p>`;
   }
   box.innerHTML = h;
   const msg = t => { const m = $("#g-msg"); if (m) m.textContent = t; };
-  const result = r => `${r.created} neu, ${r.matched} geplante abgehakt, ${r.linked} vorhandene verknüpft, ${r.updated} aktualisiert`;
+  const result = r => `${r.created} neu, ${r.matched + (r.rematched || 0)} geplante abgehakt, ${r.linked} vorhandene verknüpft, ${r.updated} aktualisiert`;
   const run = async (fn, busy) => { msg(busy); try { await fn(); } catch (e) { msg("Fehler: " + e.message); } };
   const f = $("#gForm");
   if (f) f.onsubmit = e => {
