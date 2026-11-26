@@ -70,9 +70,12 @@ export function renderProfile(passive = false) {
 }
 
 // ---------- Garmin (Personal API) ----------
+// true, solange das Formular für einen neuen Schlüssel offen ist – Synchronisierungen dürfen es nicht schließen
+let replacingKey = false;
 function renderGarmin() {
   const box = $("#garminBox"); if (!box) return;
-  const g = store.garmin;
+  if (box.contains(document.activeElement) && document.activeElement.id === "g-key") return; // nicht beim Tippen neu zeichnen
+  const g = replacingKey ? null : store.garmin;
   let h = `<div class="panel-h"><h3>Garmin Connect</h3>${g ? '<span class="chip done">verbunden</span>' : ""}</div>`;
   if (!g) {
     h += `<p class="hint">Holt deine Aktivitäten direkt von Garmin – kostenlos, mit Puls. Einmalig einrichten:</p>
@@ -83,7 +86,7 @@ function renderGarmin() {
       </ol>
       <form class="stack" id="gForm" novalidate>
         <div class="field"><label for="g-key">Persönlicher API-Schlüssel</label><input type="password" id="g-key" autocomplete="off"></div>
-        <div class="row"><button class="btn" type="submit">Verbinden</button><span class="hint" id="g-msg"></span></div>
+        <div class="row"><button class="btn" type="submit">${replacingKey ? "Schlüssel speichern" : "Verbinden"}</button>${replacingKey ? '<button class="btn secondary" type="button" id="g-cancel">Abbrechen</button>' : ""}<span class="hint" id="g-msg"></span></div>
       </form>
       <p class="hint" style="margin:0">Der Schlüssel wird nur auf dem Server gespeichert und nie wieder an die App geschickt. Bereits per CSV importierte Einheiten werden erkannt und nicht doppelt angelegt.</p>`;
   } else {
@@ -98,9 +101,18 @@ function renderGarmin() {
   const result = r => `${r.created} neu, ${r.matched} geplante abgehakt, ${r.linked} vorhandene verknüpft, ${r.updated} aktualisiert`;
   const run = async (fn, busy) => { msg(busy); try { await fn(); } catch (e) { msg("Fehler: " + e.message); } };
   const f = $("#gForm");
-  if (f) f.onsubmit = e => { e.preventDefault(); run(async () => { const r = await callGarmin("save_key", { api_key: $("#g-key").value }); await store.sync(); toast("Garmin verbunden"); msg(result(r)); }, "Verbinde und lade die letzten 4 Monate…"); };
+  if (f) f.onsubmit = e => {
+    e.preventDefault();
+    run(async () => {
+      const r = await callGarmin("save_key", { api_key: $("#g-key").value });
+      replacingKey = false; $("#g-key").blur();
+      await store.sync(); renderGarmin();
+      toast("Garmin-Schlüssel gespeichert"); msg(result(r));
+    }, "Prüfe den Schlüssel und lade die letzten 4 Monate…");
+  };
+  const cancel = $("#g-cancel"); if (cancel) cancel.onclick = () => { replacingKey = false; renderGarmin(); };
   const sy = $("#g-sync"); if (sy) sy.onclick = () => run(async () => { const r = await callGarmin("sync"); await store.sync(); msg(result(r)); }, "Gleiche ab…");
-  const nw = $("#g-new"); if (nw) nw.onclick = () => { store.garmin = null; renderGarmin(); };
+  const nw = $("#g-new"); if (nw) nw.onclick = () => { replacingKey = true; renderGarmin(); };
   const off = $("#g-off"); if (off) off.onclick = () => run(async () => { await callGarmin("disconnect"); await store.sync(); toast("Garmin getrennt"); }, "Trenne…");
 }
 
