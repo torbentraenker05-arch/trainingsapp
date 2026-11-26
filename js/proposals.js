@@ -46,7 +46,7 @@ export function proposals() {
   //    gegen die Pace, die die aktuellen Zonen für diese Intervall-Länge vorgeben würden. Letzte 3 Intervall-Läufe.
   const pz = paceZones(z);
   const target = w => planPace(w) || zonePace(w.recovery.reps, pz);
-  const ivRuns = all.filter(w => w.status === "done" && w.sport === "run" && w.date >= addDaysStr(t, -60) && w.recovery?.reps?.length >= 3 && target(w))
+  const ivRuns = all.filter(w => w.status === "done" && w.sport === "run" && w.date >= addDaysStr(t, -60) && w.recovery?.reps?.length >= 3 && !w.indoor && target(w))
     .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
   const refSec = parseTime(z.refTime);
   if (ivRuns.length === 3 && refSec) {

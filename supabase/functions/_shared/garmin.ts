@@ -151,6 +151,8 @@ export async function importGarmin(db: SupabaseClient, userId: string, a: any, c
     elev_m: a.elevationGain != null ? Math.round(a.elevationGain) : null,
     trimp: trimp(dur, avgHr, cfg.hrRest, cfg.hrMax),
     garmin_id: a.activityId,
+    // Laufband & Co.: Pace ohne GPS ist nur geschätzt (zählt nicht für Pace-Zonen-Vorschläge)
+    indoor: /treadmill|indoor|virtual/.test(typeKey),
     source: "garmin", locked: true, deleted: false,
   };
 
@@ -181,7 +183,7 @@ async function rematch(db: SupabaseClient, userId: string) {
   for (const w of list || []) {
     const p = await findPlanned(db, userId, w.date, w.sport);
     if (!p) continue;
-    const keep = ["date", "sport", "status", "distance_km", "duration_min", "avg_hr", "max_hr", "elev_m", "trimp", "garmin_id", "source", "locked", "recovery", "fit_checked"];
+    const keep = ["date", "sport", "status", "distance_km", "duration_min", "avg_hr", "max_hr", "elev_m", "trimp", "garmin_id", "indoor", "source", "locked", "recovery", "fit_checked"];
     const data: Record<string, unknown> = {};
     for (const k of keep) data[k] = w[k];
     // erst die Kopie lösen (garmin_id ist eindeutig), dann die geplante Einheit abhaken
