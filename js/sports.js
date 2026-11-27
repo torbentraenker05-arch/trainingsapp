@@ -60,16 +60,23 @@ export function sportOf(settings, key) {
 // Riegel-Formel: Zeit (s) für Distanz d aus Referenzleistung
 export function riegel(refKm, refSec, d) { return refSec * Math.pow(d / refKm, 1.06); }
 
-export function paceZones(z) {
+// weeklyKm: aktueller Laufumfang pro Woche. Wer weniger läuft, fällt zur Marathondistanz stärker ab:
+// Riegel-Exponent 1,06 ab 60 km/Woche, bis 1,11 bei sehr wenig Umfang. z.marathonPace (mm:ss) überschreibt alles.
+export function paceZones(z, weeklyKm = null) {
   const refKm = Number(z.refDistanceKm) || 5;
   const refSec = parseTimeSafe(z.refTime);
   if (!refSec) return null;
   const p = d => riegel(refKm, refSec, d) / d;
   const p5 = p(5);
+  const km = Number(weeklyKm);
+  const exp = km > 0 ? 1.06 + Math.min(0.05, Math.max(0, (60 - km) / 40 * 0.04)) : 1.06;
+  const mpAuto = refSec * Math.pow(42.195 / refKm, exp) / 42.195;
+  const mpSet = parseTimeSafe(z.marathonPace);
+  const mp = mpSet && mpSet > 120 && mpSet < 600 ? mpSet : mpAuto;
   return {
     recovery: [p5 * 1.42, p5 * 1.55],
     easy: [p5 * 1.25, p5 * 1.40],
-    marathon: [p(42.195), p(42.195)],
+    marathon: [mp, mp],
     threshold: [p(15) * 0.99, p(15) * 1.01],
     interval: [p(3) * 0.99, p(3) * 1.01],
     rep: [p(1.5), p(1.5)],

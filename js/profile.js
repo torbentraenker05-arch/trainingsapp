@@ -25,6 +25,7 @@ export function renderProfile(passive = false) {
       <div class="field"><label for="p-time">Zeit</label><input type="text" id="p-time" inputmode="numeric" value="${esc(z.refTime)}"></div></div>
       <div class="row2"><div class="field"><label for="p-max">Maximalpuls</label><input type="number" id="p-max" value="${esc(z.hrMax)}"></div>
       <div class="field"><label for="p-rest">Ruhepuls</label><input type="number" id="p-rest" value="${esc(z.hrRest)}"></div></div>
+      <div class="field"><label for="p-mp">Marathontempo (optional, mm:ss pro km)</label><input type="text" id="p-mp" inputmode="numeric" placeholder="leer = automatisch aus Zeit und Wochenumfang" value="${esc(z.marathonPace || "")}"></div>
       <div id="pZones">${zonesTable(z)}</div>
       <p class="hint" style="margin:0">${(lr => lr ? `Intervallpause (gelernt): <b>${Math.floor(lr.sec / 60)}:${String(lr.sec % 60).padStart(2, "0")} min</b> – Zeit bis Puls unter ${lr.thr}, aus ${lr.n} Intervall-Läufen.` : "Intervallpause: noch keine Messung. Sobald Garmin-Intervall-Läufe mit Pausen-Runden da sind, lernt der Plan deine Pausenzeit.")(learnedRest(store.allWorkouts()))}</p>
       <p class="hint" style="margin:0">Änderungen gelten für neu berechnete Pläne und neue Importe.</p></div>
@@ -50,11 +51,12 @@ export function renderProfile(passive = false) {
   $("#logout").onclick = () => sb.auth.signOut();
   $("#resync").onclick = async () => { await store.fullResync(); toast("Daten neu geladen"); };
   const saveZ = () => {
-    const nz = { refDistanceKm: Number($("#p-dist").value), refTime: $("#p-time").value.trim(), hrMax: num($("#p-max").value) || 190, hrRest: num($("#p-rest").value) || 60 };
+    const nz = { ...store.settings.zones, refDistanceKm: Number($("#p-dist").value), refTime: $("#p-time").value.trim(), hrMax: num($("#p-max").value) || 190, hrRest: num($("#p-rest").value) || 60, marathonPace: $("#p-mp").value.trim() };
+    if (nz.marathonPace && !parseTime(nz.marathonPace)) { toast("Marathontempo bitte als mm:ss, z. B. 4:45"); return; }
     if (!parseTime(nz.refTime)) { toast("Zeit bitte als mm:ss oder h:mm:ss"); return; }
     store.saveSettings({ zones: nz }); $("#pZones").innerHTML = zonesTable(nz); toast("Zonen gespeichert");
   };
-  ["#p-dist", "#p-time", "#p-max", "#p-rest"].forEach(s => $(s).onchange = saveZ);
+  ["#p-dist", "#p-time", "#p-max", "#p-rest", "#p-mp"].forEach(s => $(s).onchange = saveZ);
   renderSports();
   $("#addSport").onsubmit = e => {
     e.preventDefault();

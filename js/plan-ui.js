@@ -130,7 +130,7 @@ function defaultCfg() {
     notes: "",
   };
 }
-function recentKm() {
+export function recentKm() {
   const t = todayStr(), from = addDaysStr(t, -28);
   const km = store.allWorkouts().filter(w => w.status === "done" && w.sport === "run" && w.date >= from && w.date < t).reduce((s, w) => s + (+w.distanceKm || 0), 0);
   return Math.round(km / 4);
@@ -327,14 +327,14 @@ function stepZones(c) {
   <div id="zonePrev"></div>
   <div class="field"><label for="g-notes">Notizen für Claude (z. B. Verletzungen) – <b>wird vom Algorithmus nicht ausgewertet</b>, nur bei „An Claude übergeben“ mitgeschickt</label><textarea class="in" id="g-notes" rows="4">${esc(c.notes || "")}</textarea></div>`;
 }
-export function zonesTable(z) {
-  const pz = paceZones(z), hz = hrZones(z);
+export function zonesTable(z, weeklyKm = recentKm()) {
+  const pz = paceZones(z, weeklyKm), hz = hrZones(z);
   return `<table class="zonetbl">${pz ? Object.keys(ZONE_LABEL).map(k => `<tr><td>${ZONE_LABEL[k]}</td><td>${fmtRange(pz[k])} /km</td></tr>`).join("") : '<tr><td colspan="2" class="hint">Zeit bitte als mm:ss</td></tr>'}
     ${hz.map(h => `<tr><td>${h.name}</td><td>${h.lo}–${h.hi} bpm</td></tr>`).join("")}</table>`;
 }
 function bindZones(c) {
-  const show = () => $("#zonePrev").innerHTML = zonesTable(readZones());
-  const readZones = () => ({ refDistanceKm: Number($("#z-dist").value), refTime: $("#z-time").value.trim(), hrMax: num($("#z-max").value) || 190, hrRest: num($("#z-rest").value) || 60 });
+  const show = () => $("#zonePrev").innerHTML = zonesTable(readZones(), c.startKm);
+  const readZones = () => ({ ...store.settings.zones, refDistanceKm: Number($("#z-dist").value), refTime: $("#z-time").value.trim(), hrMax: num($("#z-max").value) || 190, hrRest: num($("#z-rest").value) || 60 });
   show();
   const f = $("#wz");
   f.oninput = () => { c.notes = $("#g-notes").value; show(); };
@@ -386,7 +386,7 @@ function bridgeItems(p, days) {
   return store.allWorkouts().filter(w => w.planId === p.id && w.status === "planned" && w.date >= t && w.date <= to).sort((a, b) => a.date.localeCompare(b.date) || (a.slot ?? 0) - (b.slot ?? 0)).slice(0, 150);
 }
 function buildPrompt(p, days) {
-  const c = p.config || {}, z = store.settings.zones, pz = paceZones(z), hz = hrZones(z);
+  const c = p.config || {}, z = store.settings.zones, pz = paceZones(z, c.startKm), hz = hrZones(z);
   const items = bridgeItems(p, days).map(w => ({ id: w.id, date: w.date, weekday: WD[parse(w.date).getDay()], reihenfolge: w.target?.order || undefined, sport: w.sport, focus: w.focus || undefined, title: w.title || undefined, note: w.note || undefined, distanceKm: w.distanceKm || undefined, durationMin: w.durationMin || undefined, key: w.isKey || undefined }));
   const mon = mondayOf(new Date()), hist = [];
   for (let i = 4; i >= 1; i--) {

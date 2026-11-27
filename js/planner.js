@@ -87,7 +87,7 @@ export const PHASE_LABEL = { base: "Grundlage", build: "Aufbau", peak: "Spitze",
 
 // ---------- Inhalte der Lauf-Einheiten ----------
 function runPaces(settings, cfg) {
-  const z = paceZones(settings.zones) || paceZones({ refDistanceKm: 5, refTime: "28:00" });
+  const z = paceZones(settings.zones, cfg.startKm) || paceZones({ refDistanceKm: 5, refTime: "28:00" }, cfg.startKm);
   let rp = null;
   if (cfg.goal?.race && cfg.goal.raceTime && cfg.goal.raceDistanceKm) {
     const t = parseTime(cfg.goal.raceTime);
